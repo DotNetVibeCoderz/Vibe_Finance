@@ -1,0 +1,135 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 12 · Market Microstructure & Execution
+
+**English.** At short horizons, prices are made by the limit order book. This notebook reads an order book (spread, depth, imbalance, microprice, sweep cost), routes an order across venues with a smart order router, slices a parent order with TWAP/VWAP schedules, measures the result with transaction-cost analysis (implementation shortfall, slippage vs VWAP) and speaks FIX 4.4 — all with `Finance.Core` and `Finance.Execution`.
+
+**Bahasa Indonesia.** Pada horizon pendek, harga dibentuk oleh limit order book. Notebook ini membaca order book (spread, kedalaman, ketidakseimbangan, microprice, biaya sapu), merutekan order ke beberapa venue dengan smart order router, memecah parent order dengan jadwal TWAP/VWAP, mengukur hasilnya dengan analisis biaya transaksi (implementation shortfall, slippage terhadap VWAP), dan berkomunikasi dengan FIX 4.4 — semuanya dengan `Finance.Core` dan `Finance.Execution`.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.Execution, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core;
+using Finance.Core.Market;
+using Finance.Execution.Algorithms;
+using Finance.Execution.Analytics;
+using Finance.Execution.Fix;
+using Finance.Execution.Risk;
+using Finance.Execution.Routing;
+using Finance.Visualization;
+
+#!markdown
+
+## Reading the book / Membaca order book
+
+**EN.** The microprice weights bid and ask by the *opposite* side's size: a thick bid and thin ask means the next trade is more likely up. Imbalance summarises the same pressure over several levels; sweeping shows the average price paid when a market order eats through levels.
+
+**ID.** Microprice menimbang bid dan ask dengan ukuran sisi *seberangnya*: bid yang tebal dan ask yang tipis berarti transaksi berikutnya lebih mungkin naik. Imbalance merangkum tekanan yang sama pada beberapa level; simulasi sapu menunjukkan harga rata-rata yang dibayar ketika market order menghabiskan beberapa level.
+
+#!csharp
+
+var book = SyntheticMarket.OrderBook("XYZ", mid: 50.00, levels: 15, tick: 0.01, seed: 5);
+var top = new Quote(DateTime.UtcNow, book.BestBid, book.Bids[0].Size, book.BestAsk, book.Asks[0].Size);
+Console.WriteLine($"Bid {book.BestBid:F2} × {book.Bids[0].Size}   Ask {book.BestAsk:F2} × {book.Asks[0].Size}   spread {book.Spread * 1e4 / book.Mid:F1} bp");
+Console.WriteLine($"Mid {book.Mid:F4}  microprice {top.MicroPrice:F4}  imbalance(5) {book.Imbalance(5):+0.000;-0.000}");
+foreach (double q in new[] { 100, 1_000, 3_000 })
+    Console.WriteLine($"Buy {q,6:N0}: average {book.SweepPrice(Side.Buy, q):F4}, cost {(book.SweepPrice(Side.Buy, q) / book.Mid - 1) * 1e4:F2} bp");
+
+#!markdown
+
+## Smart order routing / Smart order routing
+
+**EN.** The same stock trades on several venues with different depth and fees. The router walks all books together, taking the best all-in price (price plus taker fee) level by level.
+
+**ID.** Saham yang sama diperdagangkan di beberapa venue dengan kedalaman dan biaya yang berbeda. Router menelusuri semua order book sekaligus, mengambil harga all-in terbaik (harga ditambah biaya taker) level demi level.
+
+#!csharp
+
+var venues = new[]
+{
+    new Venue("Lit-A", SyntheticMarket.OrderBook("XYZ", 50.00, 10, 0.01, seed: 1), TakerFeeBps: 0.30),
+    new Venue("Lit-B", SyntheticMarket.OrderBook("XYZ", 50.01, 10, 0.01, seed: 2), TakerFeeBps: 0.10),
+    new Venue("Dark-C", SyntheticMarket.OrderBook("XYZ", 49.995, 4, 0.01, seed: 3), TakerFeeBps: 0.00),
+};
+var plan = SmartOrderRouter.Route(Side.Buy, 4_000, venues);
+foreach (var a in plan.Allocations)
+    Console.WriteLine($"  {a.Venue,-7} {a.Quantity,7:N0} @ {a.AveragePrice:F4}  fees {a.Fees:F2}");
+var single = SmartOrderRouter.SingleVenue(Side.Buy, 4_000, venues[0]);
+Console.WriteLine($"Routed all-in {plan.AllInPrice:F4} vs single venue {single.AllInPrice:F4} → saving {(single.AllInPrice - plan.AllInPrice) * 4_000:F2}");
+
+#!markdown
+
+## Execution algorithms and TCA / Algoritma eksekusi dan TCA
+
+**EN.** A 50,000-share buy is sliced over a trading day. VWAP follows the intraday U-shaped volume curve; TWAP trades evenly. We "execute" the slices against simulated one-minute bars and measure implementation shortfall against the decision price.
+
+**ID.** Pembelian 50.000 saham dipecah sepanjang satu hari perdagangan. VWAP mengikuti kurva volume intrahari berbentuk U; TWAP bertransaksi merata. Kita "mengeksekusi" potongan order pada bar satu menit simulasi lalu mengukur implementation shortfall terhadap harga keputusan.
+
+#!csharp
+
+var open = new DateTime(2025, 6, 2, 13, 30, 0, DateTimeKind.Utc);
+var rng = new FastRandom(9);
+var minuteBars = new List<Bar>();
+double p = 50, profileSum = 0;
+var profile = ExecutionAlgorithms.UShapedProfile(390);
+foreach (var v in profile) profileSum += v;
+for (int m = 0; m < 390; m++)
+{
+    double o = p;
+    p *= Math.Exp(0.0004 * rng.NextGaussian() + 0.00001);
+    minuteBars.Add(new Bar(open.AddMinutes(m), o, Math.Max(o, p) + 0.005, Math.Min(o, p) - 0.005, p, 2_000_000 * profile[m] / profileSum));
+}
+double decision = minuteBars[0].Open;
+
+var vwapSlices = ExecutionAlgorithms.Vwap(50_000, open, open.AddMinutes(390), ExecutionAlgorithms.UShapedProfile(13), lotSize: 100);
+var twapSlices = ExecutionAlgorithms.Twap(50_000, open, open.AddMinutes(390), 13, lotSize: 100);
+Fill[] Execute(IReadOnlyList<ChildOrder> slices) => slices.Select((c, i) =>
+{
+    var bar = minuteBars[Math.Min(389, (int)(c.Time - open).TotalMinutes)];
+    double impact = 0.0001 * Math.Sqrt(c.Quantity / 1_000);   // simple square-root impact per slice
+    return new Fill(i, "XYZ", Side.Buy, c.Quantity, bar.Typical * (1 + impact), c.Time, Commission: c.Quantity * 0.002);
+}).ToArray();
+
+foreach (var (name, slices) in new[] { ("VWAP", vwapSlices), ("TWAP", twapSlices) })
+{
+    var fills = Execute(slices);
+    var shortfall = TransactionCostAnalysis.ImplementationShortfall(Side.Buy, 50_000, decision, fills, minuteBars[^1].Close);
+    var slip = TransactionCostAnalysis.Slippage(Side.Buy, fills, decision, minuteBars);
+    Console.WriteLine($"{name}: {slices.Count} slices, avg {shortfall.AverageFillPrice:F4}, shortfall {shortfall.TotalBps:F1} bp (exec {shortfall.ExecutionBps:F1}, fees {shortfall.FeesBps:F1}), vs VWAP {slip.VsVwapBps:+0.0;-0.0} bp");
+}
+double impactEstimate = TransactionCostAnalysis.SquareRootImpact(50_000, averageDailyVolume: 2_000_000, dailyVolatility: 0.012);
+Console.WriteLine($"Square-root model impact estimate for 2.5% of ADV: {impactEstimate * 1e4:F1} bp");
+display(HTML(Charts.Bar(vwapSlices.Select(c => c.Time.ToString("HH:mm")).ToList(), vwapSlices.Select(c => c.Quantity).ToList(),
+    new ChartOptions { Title = "VWAP schedule (U-shaped volume profile)", YFormat = "N0", Height = 280 })));
+
+#!markdown
+
+## Pre-trade risk and FIX / Risiko pra-transaksi dan FIX
+
+**EN.** Every order passes pre-trade checks (fat-finger price band, notional, position limits) before it is encoded as a FIX 4.4 `NewOrderSingle`. The parser validates BodyLength and CheckSum.
+
+**ID.** Setiap order melewati pemeriksaan pra-transaksi (batas harga fat-finger, nilai nosional, batas posisi) sebelum dikodekan sebagai `NewOrderSingle` FIX 4.4. Parser memvalidasi BodyLength dan CheckSum.
+
+#!csharp
+
+var checker = new PreTradeRiskChecker(new RiskLimits { MaxOrderNotional = 1_000_000, MaxPriceDeviation = 0.05, MaxPosition = 100_000 });
+var good = Order.LimitBuy("XYZ", 5_000, 50.02);
+var fatFinger = Order.LimitBuy("XYZ", 5_000, 500.2);
+Console.WriteLine($"Good order: {checker.Check(good, 50.0).Passed}; fat finger: {string.Join("; ", checker.Check(fatFinger, 50.0).Violations)}");
+
+var fix = FixMapping.NewOrderSingle(good, clOrdId: "ORD-0001", account: "DEMO", transactTime: new DateTime(2025, 6, 2, 14, 0, 0, DateTimeKind.Utc));
+fix.Set(FixTags.SenderCompID, "FINNET").Set(FixTags.TargetCompID, "BROKER").Set(FixTags.MsgSeqNum, 1);
+string wire = fix.EncodeString();
+Console.WriteLine(wire.Replace(FixMessage.Soh, '|'));
+var back = FixMapping.ParseNewOrderSingle(FixMessage.Parse(wire));
+Console.WriteLine($"Parsed back: {back.Order} ClOrdID={back.ClOrdId}");

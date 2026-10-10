@@ -1,0 +1,40 @@
+<Project>
+
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Foundation: Gravicode.Science, HF.Net, Visual.Net -->
+    <PackageVersion Include="Gravicode.Science.GraviNum" Version="1.1.0" />
+    <PackageVersion Include="Gravicode.Science.GraviFrame" Version="1.1.0" />
+    <PackageVersion Include="Gravicode.Science.GraviLearn" Version="1.1.0" />
+    <PackageVersion Include="Gravicode.HFNet.GraviTokenizers" Version="0.8.0" />
+    <PackageVersion Include="Gravicode.HFNet.GraviTransformers" Version="0.8.0" />
+    <PackageVersion Include="Gravicode.HFNet.GraviHub" Version="0.8.0" />
+    <PackageVersion Include="Gravicode.Visual.Net.Core" Version="1.0.0" />
+    <PackageVersion Include="Gravicode.Plotly.Net" Version="1.0.0" />
+    <PackageVersion Include="Gravicode.RLNet" Version="0.1.0" />
+
+    <!-- GPU -->
+    <PackageVersion Include="ILGPU" Version="1.5.3" />
+    <PackageVersion Include="ILGPU.Algorithms" Version="1.5.3" />
+
+    <!-- Gallery (Avalonia) -->
+    <PackageVersion Include="Avalonia" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Desktop" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Headless" Version="12.1.1" />
+    <PackageVersion Include="Avalonia.Skia" Version="12.1.1" />
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageVersion Include="SkiaSharp" Version="3.119.4" />
+
+    <!-- Benchmarks and tests -->
+    <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="xunit.v3" Version="3.2.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

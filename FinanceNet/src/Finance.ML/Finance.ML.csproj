@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Finance.ML</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Finance.Core/Finance.Core.csproj" />
+    <ProjectReference Include="../Finance.Math/Finance.Math.csproj" />
+    <PackageReference Include="Gravicode.RLNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Finance.AI.Tests" />
+  </ItemGroup>
+
+</Project>

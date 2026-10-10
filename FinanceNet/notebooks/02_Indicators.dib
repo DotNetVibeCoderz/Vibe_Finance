@@ -1,0 +1,128 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 02 · Technical Indicators
+
+**English.** Technical indicators turn raw prices into features: trend (moving averages), momentum (RSI, MACD), volatility (Bollinger, ATR), volume (OBV, VWAP) and candlestick patterns. `Finance.TimeSeries` computes them in O(n) with outputs aligned to the input (NaN during warm-up), exposes a searchable `IndicatorCatalog`, and offers streaming versions for live feeds.
+
+**Bahasa Indonesia.** Indikator teknikal mengubah harga mentah menjadi fitur: tren (moving average), momentum (RSI, MACD), volatilitas (Bollinger, ATR), volume (OBV, VWAP) dan pola candlestick. `Finance.TimeSeries` menghitungnya dalam O(n) dengan keluaran yang sejajar dengan input (NaN selama masa pemanasan), menyediakan `IndicatorCatalog` yang dapat ditelusuri, serta versi streaming untuk data langsung.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.TimeSeries, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+#r "nuget: Gravicode.Finance.RustBridge, 0.1.0"
+
+using Finance.Core.Market;
+using Finance.TimeSeries.Indicators;
+using Finance.Visualization;
+using Finance.RustBridge;
+
+var bars = SyntheticMarket.GeometricBrownianBars(400, startPrice: 100, annualDrift: 0.12, annualVolatility: 0.30, seed: 21);
+var close = bars.Select(b => b.Close).ToArray();
+var high = bars.Select(b => b.High).ToArray();
+var low = bars.Select(b => b.Low).ToArray();
+var volume = bars.Select(b => b.Volume).ToArray();
+
+#!markdown
+
+## The catalogue / Katalog indikator
+
+**EN.** Every indicator is registered with its category, description and parameter ranges, so applications (like the Gallery's Indicator Explorer) can build UIs from metadata.
+
+**ID.** Setiap indikator terdaftar beserta kategori, deskripsi dan rentang parameternya, sehingga aplikasi (seperti Indicator Explorer di Gallery) dapat membangun antarmuka dari metadata tersebut.
+
+#!csharp
+
+Console.WriteLine($"{IndicatorCatalog.Count} catalogue entries");
+foreach (var category in Enum.GetValues<IndicatorCategory>())
+    Console.WriteLine($"  {category,-15} {IndicatorCatalog.ByCategory(category).Count(),3}   e.g. {string.Join(", ", IndicatorCatalog.ByCategory(category).Take(4).Select(d => d.Id))}");
+
+var bb = IndicatorCatalog.Get("BBANDS");
+var outputs = bb.Compute(bars, new Dictionary<string, double> { ["period"] = 20, ["k"] = 2 });
+Console.WriteLine($"{bb.Name}: outputs {string.Join(", ", outputs.Select(o => o.Name))}");
+
+#!markdown
+
+## Trend, momentum, volatility / Tren, momentum, volatilitas
+
+**EN.** RSI uses Wilder's smoothing; MACD is the 12/26 EMA difference with a 9-period signal line; Bollinger bands sit k standard deviations around a 20-day SMA.
+
+**ID.** RSI memakai pemulusan Wilder; MACD adalah selisih EMA 12/26 dengan garis sinyal 9 periode; pita Bollinger berada k simpangan baku di sekitar SMA 20 hari.
+
+#!csharp
+
+var sma50 = Ta.Sma(close, 50);
+var ema20 = Ta.Ema(close, 20);
+var rsi = Ta.Rsi(close, 14);
+var macd = Ta.Macd(close);
+var bands = Ta.Bollinger(close, 20, 2);
+var atr = Ta.Atr(high, low, close, 14);
+var obv = Ta.Obv(close, volume);
+
+Console.WriteLine($"Close {close[^1]:F2} | SMA50 {sma50[^1]:F2} | EMA20 {ema20[^1]:F2} | RSI {rsi[^1]:F1}");
+Console.WriteLine($"MACD {macd.Macd[^1]:F3} signal {macd.Signal[^1]:F3} hist {macd.Histogram[^1]:F3}");
+Console.WriteLine($"Bollinger [{bands.Lower[^1]:F2}, {bands.Upper[^1]:F2}] %B {bands.PercentB[^1]:F2} | ATR {atr[^1]:F2} | OBV {obv[^1]:N0}");
+
+var overlays = new[]
+{
+    new LineSeries("Upper", bands.Upper) { Color = "#2DD4BF" },
+    new LineSeries("SMA 20", bands.Middle) { Color = "#FBBF24" },
+    new LineSeries("Lower", bands.Lower) { Color = "#F472B6" },
+};
+display(HTML(Charts.Candlestick(bars, new ChartOptions { Title = "Bollinger Bands (20, 2)", Height = 420 }, overlays)));
+display(HTML(Charts.Line(new[] { new LineSeries("RSI 14", rsi) { Color = "#A78BFA" } },
+    new ChartOptions { Title = "RSI (14)", Height = 220 }, bars.Select(b => b.Time).ToList())));
+
+#!markdown
+
+## Candlestick patterns / Pola candlestick
+
+**EN.** Pattern detectors return +100 (bullish), −100 (bearish) or 0 for each bar, the same convention as TA-Lib.
+
+**ID.** Detektor pola menghasilkan +100 (bullish), −100 (bearish) atau 0 untuk setiap bar, konvensi yang sama dengan TA-Lib.
+
+#!csharp
+
+var hits = Candlesticks.Scan(bars);
+Console.WriteLine($"{hits.Count} pattern signals in {bars.Length} bars");
+foreach (var g in hits.GroupBy(h => h.Pattern).OrderByDescending(g => g.Count()).Take(8))
+    Console.WriteLine($"  {g.Key,-22} {g.Count(),3}  (last on {bars[g.Last().Index].Time:yyyy-MM-dd})");
+
+#!markdown
+
+## Streaming indicators / Indikator streaming
+
+**EN.** Live systems update indicators one bar at a time. The streaming classes reproduce the batch results exactly, in O(1) per update.
+
+**ID.** Sistem langsung memperbarui indikator satu bar demi satu bar. Kelas streaming menghasilkan nilai yang persis sama dengan versi batch, dengan biaya O(1) per pembaruan.
+
+#!csharp
+
+var liveRsi = new StreamingRsi(14);
+var liveBands = new StreamingBollinger(20, 2);
+foreach (var bar in bars) { liveRsi.Update(bar); liveBands.Update(bar); }
+Console.WriteLine($"Streaming RSI {liveRsi.Value:F6} vs batch {rsi[^1]:F6}");
+Console.WriteLine($"Streaming upper band {liveBands.Upper:F6} vs batch {bands.Upper[^1]:F6}");
+
+#!markdown
+
+## Rust acceleration / Akselerasi Rust
+
+**EN.** `Finance.RustBridge` exposes the same kernels implemented in Rust and falls back to managed code when the native library is missing. Results agree to floating-point precision.
+
+**ID.** `Finance.RustBridge` menyediakan kernel yang sama yang ditulis dalam Rust dan kembali ke kode managed bila pustaka native tidak tersedia. Hasilnya sama hingga presisi floating-point.
+
+#!csharp
+
+Console.WriteLine(RustAccelerator.Describe());
+var fastSma = FastIndicators.Sma(close, 50);
+var fastRsi = FastIndicators.Rsi(close, 14);
+Console.WriteLine($"SMA50 rust/managed difference {Math.Abs(fastSma[^1] - sma50[^1]):E2}; RSI difference {Math.Abs(fastRsi[^1] - rsi[^1]):E2}");

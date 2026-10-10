@@ -1,0 +1,147 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 06 · Backtesting
+
+**English.** A backtest replays history through a strategy with realistic fills and costs. `Finance.Backtesting` offers an event-driven engine (Zipline/Backtrader style: orders fill on the next bar, with commission and slippage models), a vectorised backtester for fast research, parameter sweeps, walk-forward optimisation to fight overfitting, and multi-asset portfolio rebalancing.
+
+**Bahasa Indonesia.** Backtest memutar ulang data historis melalui sebuah strategi dengan eksekusi dan biaya yang realistis. `Finance.Backtesting` menyediakan mesin berbasis event (gaya Zipline/Backtrader: order dieksekusi pada bar berikutnya, dengan model komisi dan slippage), backtester tervektorisasi untuk riset cepat, penyapuan parameter, optimisasi walk-forward untuk melawan overfitting, serta rebalancing portofolio multi-aset.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.Backtesting, 0.1.0"
+#r "nuget: Gravicode.Finance.Portfolio, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core.Market;
+using Finance.Backtesting;
+using Finance.Backtesting.Strategies;
+using Finance.Portfolio;
+using Finance.Visualization;
+
+var bars = SyntheticMarket.GeometricBrownianBars(1500, startPrice: 100, annualDrift: 0.09, annualVolatility: 0.24, seed: 99);
+var settings = new BacktestSettings
+{
+    InitialCash = 100_000,
+    Commission = CommissionModels.PerShare(0.005, minimum: 1),
+    Slippage = SlippageModels.FixedBps(2),
+};
+var engine = new BacktestEngine(settings);
+
+#!markdown
+
+## Event-driven strategies / Strategi berbasis event
+
+**EN.** Each strategy sees one bar at a time and can only trade on information it has already seen; orders fill at the next bar's open. We compare four built-in strategies against buy-and-hold, after costs.
+
+**ID.** Setiap strategi melihat satu bar setiap kali dan hanya dapat bertransaksi berdasarkan informasi yang sudah terlihat; order dieksekusi pada harga pembukaan bar berikutnya. Kita membandingkan empat strategi bawaan terhadap buy-and-hold, setelah biaya.
+
+#!csharp
+
+var strategies = new Strategy[]
+{
+    new BuyAndHoldStrategy(),
+    new SmaCrossoverStrategy(20, 100),
+    new RsiMeanReversionStrategy(14, 30, 70),
+    new BollingerBreakoutStrategy(20, 2),
+};
+var results = strategies.Select(s => engine.Run(s, "DEMO", bars)).ToList();
+Console.WriteLine($"{"Strategy",-36} {"Return",8} {"CAGR",7} {"Sharpe",7} {"MaxDD",8} {"Trades",6} {"Win%",6}");
+foreach (var r in results)
+{
+    var st = r.Statistics;
+    Console.WriteLine($"{r.StrategyName,-36} {st.TotalReturn,8:P1} {st.Cagr,7:P1} {st.SharpeRatio,7:F2} {st.MaxDrawdown,8:P1} {st.NumberOfTrades,6} {st.WinRate,6:P0}");
+}
+var dates = results[0].Times;
+display(HTML(Charts.Line(results.Select(r => new LineSeries(r.StrategyName, r.Equity)).ToList(),
+    new ChartOptions { Title = "Equity curves after costs", YFormat = "N0", Height = 380 }, dates)));
+
+#!markdown
+
+## Trades on the chart / Transaksi pada grafik
+
+**EN.** Round trips are recorded with entry, exit, P&L and commission, and can be drawn on the candles.
+
+**ID.** Setiap transaksi pulang-pergi dicatat dengan harga masuk, keluar, laba-rugi dan komisi, dan dapat digambar di atas candlestick.
+
+#!csharp
+
+var sma = results[1];
+foreach (var t in sma.Trades.Take(5))
+    Console.WriteLine($"{t.EntryTime:yyyy-MM-dd} → {t.ExitTime:yyyy-MM-dd}  {t.Quantity,6:F0} @ {t.EntryPrice,7:F2} → {t.ExitPrice,7:F2}  P&L {t.Pnl,10:N2} ({t.ReturnPct:P1})");
+var index = bars.Select((b, i) => (b.Time, i)).ToDictionary(x => x.Time, x => x.i);
+var markers = sma.Fills.Where(f => index.ContainsKey(f.Time)).Select(f => new TradeMarker(index[f.Time], f.Price, f.Side)).ToList();
+display(HTML(Charts.Candlestick(bars[^300..], new ChartOptions { Title = "SMA 20/100 fills (last 300 bars)", Height = 380 },
+    trades: markers.Where(m => m.Index >= bars.Length - 300).Select(m => m with { Index = m.Index - (bars.Length - 300) }).ToList())));
+
+#!markdown
+
+## Parameter sweep and walk-forward / Penyapuan parameter dan walk-forward
+
+**EN.** Picking the best parameters on all of history is overfitting. Walk-forward optimisation chooses parameters on a rolling in-sample window and only scores them on the following out-of-sample window; the stitched out-of-sample equity is the honest estimate.
+
+**ID.** Memilih parameter terbaik dari seluruh data historis adalah overfitting. Optimisasi walk-forward memilih parameter pada jendela in-sample yang bergulir dan hanya menilainya pada jendela out-of-sample berikutnya; ekuitas out-of-sample yang digabungkan adalah estimasi yang jujur.
+
+#!csharp
+
+var data = new Dictionary<string, Bar[]> { ["DEMO"] = bars };
+var grid = ParameterSweep.Grid(new[] { 10, 20, 50 }, new[] { 100, 150, 200 });
+var sweep = ParameterSweep.Run(grid, p => new SmaCrossoverStrategy(p.Item1, p.Item2), data, settings);
+foreach (var s in sweep.OrderByDescending(s => s.Score).Take(3))
+    Console.WriteLine($"in-sample best: SMA {s.Parameters.Item1}/{s.Parameters.Item2}  Sharpe {s.Score:F2}");
+
+var wfo = new WalkForwardOptimizer<(int, int)>(grid, p => new SmaCrossoverStrategy(p.Item1, p.Item2), settings);
+var wf = wfo.Run(data, inSampleBars: 500, outOfSampleBars: 125);
+Console.WriteLine($"Walk-forward: {wf.Windows.Count} windows, out-of-sample Sharpe {wf.Statistics.SharpeRatio:F2}, return {wf.Statistics.TotalReturn:P1}");
+
+#!markdown
+
+## Vectorised research / Riset tervektorisasi
+
+**EN.** For quick idea screening, positions can be computed as arrays and evaluated in one pass, vectorbt-style.
+
+**ID.** Untuk menyaring ide dengan cepat, posisi dapat dihitung sebagai array dan dievaluasi dalam satu langkah, ala vectorbt.
+
+#!csharp
+
+var close = bars.Select(b => b.Close).ToArray();
+var positions = VectorizedBacktester.CrossoverPositions(close, 20, 100);
+var vec = VectorizedBacktester.Run(close, positions, costBps: 5);
+Console.WriteLine($"Vectorised SMA 20/100: return {vec.Statistics.TotalReturn:P1}, Sharpe {vec.Statistics.SharpeRatio:F2}, turnover {vec.Turnover.Sum():F1}");
+
+#!markdown
+
+## Portfolio backtest with HRP / Backtest portofolio dengan HRP
+
+**EN.** `PortfolioBacktester` rebalances monthly to weights returned by any delegate. Plugging in Hierarchical Risk Parity from `Finance.Portfolio` takes one lambda.
+
+**ID.** `PortfolioBacktester` melakukan rebalancing bulanan ke bobot yang dihasilkan oleh delegate apa pun. Memasang Hierarchical Risk Parity dari `Finance.Portfolio` hanya membutuhkan satu lambda.
+
+#!csharp
+
+var universe = new Dictionary<string, Bar[]>();
+string[] names = { "EQ", "TECH", "BOND", "GOLD" };
+double[] mus = { 0.08, 0.12, 0.03, 0.05 }, sigmas = { 0.16, 0.28, 0.06, 0.15 };
+for (int i = 0; i < names.Length; i++)
+    universe[names[i]] = SyntheticMarket.GeometricBrownianBars(1000, 100, mus[i], sigmas[i], seed: (ulong)(10 + i));
+
+var hrpResult = PortfolioBacktester.Run(universe, req =>
+{
+    var w = HierarchicalRiskParity.OptimizeFromReturns(req.Returns(), req.Assets).Weights;
+    return req.Assets.Select((a, i) => (a, w[i] * 0.99)).ToDictionary(x => x.a, x => x.Item2);
+}, lookback: 120, frequency: RebalanceFrequency.Monthly, settings: settings, name: "HRP monthly");
+var ewResult = PortfolioBacktester.Run(universe, PortfolioBacktester.EqualWeight(), lookback: 120, settings: settings, name: "Equal weight");
+Console.WriteLine(hrpResult);
+Console.WriteLine(ewResult);
+
+var report = Tearsheet.Build("HRP monthly rebalance", hrpResult.Times[1..], hrpResult.Returns(), ewResult.Returns());
+Directory.CreateDirectory("output");
+report.Save("output/06_hrp_tearsheet.html");
+Console.WriteLine("Tearsheet written to output/06_hrp_tearsheet.html");

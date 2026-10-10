@@ -1,0 +1,90 @@
+# Publish the 17 Gravicode.Finance.* packages to nuget.org.
+#
+# Tags are prefixed `financenet-v` (e.g. financenet-v0.1.0) because this is a monorepo: a bare `v0.1.0`
+# would fire for any project in Vibe_Finance. Nothing is pushed until the full CI run — reused here, not
+# copied — is green. nuget.org versions can be unlisted but never re-uploaded, so a manual run defaults to
+# `dry_run`, which does everything except the push.
+#
+# Requires the repository secret NUGET_API_KEY.
+name: Publish FinanceNet to NuGet
+
+on:
+  push:
+    tags: ['financenet-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, e.g. 0.1.0 (or 0.2.0-preview.1)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Build and check the packages, but do not push them'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: financenet-publish
+  cancel-in-progress: false
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      push: ${{ steps.ver.outputs.push }}
+    steps:
+      - id: ver
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then version="${{ inputs.version }}"; else version="${GITHUB_REF_NAME#financenet-v}"; fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$version' is not a semantic version"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # A tag push always publishes; a manual run only when dry_run is explicitly false.
+          if [ "${{ github.event_name }}" = "push" ] || [ "${{ inputs.dry_run }}" = "false" ]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ci:
+    needs: version
+    uses: ./.github/workflows/financenet-ci.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  publish:
+    needs: [version, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: financenet-packages
+          path: packages
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Push to nuget.org
+        if: needs.version.outputs.push == 'true'
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          if [ -z "$NUGET_API_KEY" ]; then echo "::error::the NUGET_API_KEY secret is not set"; exit 1; fi
+          v="${{ needs.version.outputs.version }}"
+          # Dependency order, so a consumer never sees a package whose dependency is still missing.
+          for id in Core Math DataFrame TimeSeries MarketData AlternativeData Pricing Risk Portfolio Backtesting \
+                    Execution ML LLM NewsAnalytics Visualization GPU RustBridge; do
+            # One explicit .nupkg: `dotnet nuget push` sends the matching .snupkg itself.
+            dotnet nuget push "packages/Gravicode.Finance.$id.$v.nupkg" \
+              --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
+          done
+      - name: Dry run
+        if: needs.version.outputs.push != 'true'
+        run: |
+          echo "Dry run — packages built and checked but not pushed:"
+          ls -la packages

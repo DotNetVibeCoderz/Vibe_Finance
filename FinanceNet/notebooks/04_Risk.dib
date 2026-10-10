@@ -1,0 +1,129 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 04 · Risk Management
+
+**English.** Risk management asks "how much can we lose, how often, and why?". `Finance.Risk` answers with Value-at-Risk and Expected Shortfall (historical, parametric normal and Student-t, Cornish-Fisher, Monte Carlo), statistical backtests of those forecasts, volatility models (EWMA, GARCH(1,1)), risk attribution and pyfolio-style performance analytics.
+
+**Bahasa Indonesia.** Manajemen risiko bertanya "berapa besar kita bisa rugi, seberapa sering, dan mengapa?". `Finance.Risk` menjawabnya dengan Value-at-Risk dan Expected Shortfall (historis, parametrik normal dan Student-t, Cornish-Fisher, Monte Carlo), uji balik statistik atas prakiraan tersebut, model volatilitas (EWMA, GARCH(1,1)), atribusi risiko, dan analitik kinerja ala pyfolio.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.Math, 0.1.0"
+#r "nuget: Gravicode.Finance.Risk, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core;
+using Finance.Mathematics;
+using Finance.Risk;
+using Finance.Visualization;
+
+#!markdown
+
+## Fat-tailed returns / Imbal hasil berekor tebal
+
+**EN.** Real returns cluster in volatility and have fatter tails than a normal distribution. We simulate them with a GARCH(1,1) process so the VaR methods have something realistic to disagree about.
+
+**ID.** Imbal hasil nyata memiliki volatilitas yang mengelompok dan ekor yang lebih tebal daripada distribusi normal. Kita mensimulasikannya dengan proses GARCH(1,1) agar metode-metode VaR memiliki data realistis untuk dibandingkan.
+
+#!csharp
+
+var returns = VolatilityModels.SimulateGarch11(2500, mu: 0.0006, omega: 2e-6, alpha: 0.09, beta: 0.89, seed: 17);
+Console.WriteLine($"{returns.Length} daily returns | mean {Stats.Mean(returns):P3} | vol {Stats.StdDev(returns) * Math.Sqrt(252):P1} ann. | skew {Stats.Skewness(returns):F2} | excess kurtosis {Stats.ExcessKurtosis(returns):F2}");
+
+#!markdown
+
+## VaR and Expected Shortfall / VaR dan Expected Shortfall
+
+**EN.** VaR at 99% is the loss exceeded on 1% of days; Expected Shortfall (CVaR) is the average loss on those days. The normal model underestimates both when tails are fat; Cornish-Fisher corrects the quantile using skewness and kurtosis.
+
+**ID.** VaR 99% adalah kerugian yang terlampaui pada 1% hari; Expected Shortfall (CVaR) adalah rata-rata kerugian pada hari-hari tersebut. Model normal meremehkan keduanya ketika ekor distribusi tebal; Cornish-Fisher mengoreksi kuantil dengan memakai skewness dan kurtosis.
+
+#!csharp
+
+foreach (var method in Enum.GetValues<VarMethod>().Where(m => m != VarMethod.MonteCarlo))
+{
+    var e = ValueAtRisk.Estimate(returns, method, 0.99);
+    Console.WriteLine($"{method,-20} VaR {e.ValueAtRisk,7:P2}   ES {e.ExpectedShortfall,7:P2}");
+}
+var hist = ValueAtRisk.Historical(returns, 0.99);
+display(HTML(Charts.Histogram(returns, 80, new ChartOptions { Title = "Daily returns with 99% VaR / ES", XFormat = "P1", Height = 360 },
+    new[] { new ReferenceLine(-hist.ValueAtRisk, "VaR 99%", "#F43F5E"), new ReferenceLine(-hist.ExpectedShortfall, "ES 99%", "#FBBF24") })));
+
+#!markdown
+
+## Backtesting VaR / Uji balik VaR
+
+**EN.** A VaR model is only useful if its exceptions are as rare as promised (Kupiec test) and do not cluster (Christoffersen test). We forecast with a rolling 250-day historical window and test the forecasts out of sample.
+
+**ID.** Model VaR hanya berguna bila pelanggarannya sejarang yang dijanjikan (uji Kupiec) dan tidak mengelompok (uji Christoffersen). Kita membuat prakiraan dengan jendela historis 250 hari bergulir lalu mengujinya di luar sampel.
+
+#!csharp
+
+const int window = 250;
+var forecasts = new double[returns.Length - window];
+var realised = new double[returns.Length - window];
+for (int t = window; t < returns.Length; t++)
+{
+    forecasts[t - window] = ValueAtRisk.Historical(returns.AsSpan(t - window, window), 0.99).ValueAtRisk;
+    realised[t - window] = returns[t];
+}
+var bt = VarBacktest.Run(realised, forecasts, 0.99);
+Console.WriteLine($"Exceptions {bt.Exceptions} of {bt.Observations} (expected {bt.ExpectedExceptions:F1})");
+Console.WriteLine($"Kupiec p = {bt.KupiecPValue:F3}, Christoffersen p = {bt.ChristoffersenPValue:F3}, Basel zone: {bt.Zone}");
+
+#!markdown
+
+## Volatility models / Model volatilitas
+
+**EN.** GARCH(1,1) is fitted by maximum likelihood. Its persistence α+β tells how slowly shocks decay; the forecast reverts towards the long-run volatility.
+
+**ID.** GARCH(1,1) diestimasi dengan maximum likelihood. Persistensi α+β menunjukkan seberapa lambat guncangan meluruh; prakiraan volatilitas kembali menuju volatilitas jangka panjang.
+
+#!csharp
+
+var garch = VolatilityModels.FitGarch11(returns);
+Console.WriteLine($"ω={garch.Omega:E2}  α={garch.Alpha:F3}  β={garch.Beta:F3}  persistence {garch.Alpha + garch.Beta:F3}");
+Console.WriteLine($"Long-run volatility {garch.LongRunVolatility():P1}; next 5 days: {string.Join(", ", garch.ForecastVolatility(5).Select(v => (v * Math.Sqrt(252)).ToString("P1")))}");
+var ewma = VolatilityModels.Ewma(returns, 0.94);
+Console.WriteLine($"RiskMetrics EWMA (λ=0.94) current vol {ewma[^1] * Math.Sqrt(252):P1}");
+
+#!markdown
+
+## Portfolio risk and attribution / Risiko portofolio dan atribusi
+
+**EN.** For a multi-asset book, Euler decomposition splits total VaR into the contribution of each position, which always sums back to the total.
+
+**ID.** Untuk portofolio multi-aset, dekomposisi Euler membagi VaR total menjadi kontribusi setiap posisi, yang jumlahnya selalu sama dengan total.
+
+#!csharp
+
+double[] weights = { 0.5, 0.3, 0.2 };
+var cov = Matrix.FromArray(new double[,] { { 0.04, 0.012, -0.002 }, { 0.012, 0.09, 0.004 }, { -0.002, 0.004, 0.01 } });
+var dailyCov = (1.0 / 252) * cov;
+var decomposition = VarAttribution.Decompose(weights, dailyCov, 0.99);
+Console.WriteLine($"Portfolio VaR {decomposition.PortfolioVar:P2}; component VaR " + string.Join(", ", decomposition.Component.Select(c => c.ToString("P2"))) + $" (sum {decomposition.Component.Sum():P2})");
+var mc = ValueAtRisk.MonteCarlo(weights, new[] { 0.0003, 0.0004, 0.0001 }, dailyCov, 0.99, 200_000);
+Console.WriteLine($"Monte Carlo VaR {mc.ValueAtRisk:P2}, ES {mc.ExpectedShortfall:P2}");
+var contributions = RiskAttribution.VolatilityContributions(weights, cov);
+Console.WriteLine($"Portfolio vol {contributions.PortfolioVolatility:P2}; contributions: " + string.Join(", ", contributions.Percent.Select(c => c.ToString("P1"))));
+
+#!markdown
+
+## Performance report / Laporan kinerja
+
+**EN.** The pyfolio-style report summarises return, risk and risk-adjusted ratios in one table.
+
+**ID.** Laporan bergaya pyfolio merangkum imbal hasil, risiko dan rasio yang disesuaikan risiko dalam satu tabel.
+
+#!csharp
+
+var report = PerformanceReport.Create(returns, riskFreeRate: 0.02);
+Console.WriteLine(report);

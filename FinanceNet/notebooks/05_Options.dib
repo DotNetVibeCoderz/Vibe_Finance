@@ -1,0 +1,127 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 05 · Options & Derivatives Pricing
+
+**English.** An option's value depends on spot, strike, time, rates, dividends and — above all — volatility. `Finance.Pricing` provides closed forms (Black-Scholes-Merton, Black-76, Bachelier), lattices for early exercise, a parallel Monte Carlo engine for path-dependent payoffs, the Heston stochastic-volatility model and SABR smiles. `Finance.GPU` runs the Monte Carlo on a GPU when one is present.
+
+**Bahasa Indonesia.** Nilai opsi bergantung pada harga spot, strike, waktu, suku bunga, dividen dan — terutama — volatilitas. `Finance.Pricing` menyediakan rumus tertutup (Black-Scholes-Merton, Black-76, Bachelier), lattice untuk exercise lebih awal, mesin Monte Carlo paralel untuk payoff yang bergantung pada jalur harga, model volatilitas stokastik Heston dan smile SABR. `Finance.GPU` menjalankan Monte Carlo di GPU bila tersedia.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Pricing, 0.1.0"
+#r "nuget: Gravicode.Finance.GPU, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Pricing.Options;
+using Finance.GPU;
+using Finance.Visualization;
+
+double S = 100, K = 100, T = 0.5, r = 0.04, q = 0.01, vol = 0.25;
+
+#!markdown
+
+## Black-Scholes-Merton and the Greeks / Black-Scholes-Merton dan Greeks
+
+**EN.** Delta is the hedge ratio, Gamma its rate of change, Vega the sensitivity to volatility, Theta the daily time decay and Rho the sensitivity to rates. Second-order Greeks (Vanna, Volga, Charm) matter to volatility traders.
+
+**ID.** Delta adalah rasio lindung nilai, Gamma laju perubahannya, Vega sensitivitas terhadap volatilitas, Theta peluruhan nilai harian dan Rho sensitivitas terhadap suku bunga. Greeks orde kedua (Vanna, Volga, Charm) penting bagi trader volatilitas.
+
+#!csharp
+
+var call = BlackScholes.Greeks(OptionType.Call, S, K, T, r, q, vol);
+var put = BlackScholes.Greeks(OptionType.Put, S, K, T, r, q, vol);
+Console.WriteLine($"Call {call.Price:F4}  Δ {call.Delta:F4}  Γ {call.Gamma:F5}  vega/pt {call.VegaPerPoint:F4}  θ/day {call.ThetaPerDay:F4}");
+Console.WriteLine($"Put  {put.Price:F4}  Δ {put.Delta:F4}  Γ {put.Gamma:F5}  vega/pt {put.VegaPerPoint:F4}  θ/day {put.ThetaPerDay:F4}");
+double parity = call.Price - put.Price - (S * Math.Exp(-q * T) - K * Math.Exp(-r * T));
+Console.WriteLine($"Put-call parity residual: {parity:E2}");
+double iv = BlackScholes.ImpliedVolatility(OptionType.Call, call.Price, S, K, T, r, q);
+Console.WriteLine($"Implied volatility recovered from the call price: {iv:P4}");
+
+#!markdown
+
+## Early exercise / Exercise lebih awal
+
+**EN.** An American put can be worth more than its European twin because exercising early captures interest on the strike. Binomial (CRR) and trinomial lattices handle this; their European prices converge to Black-Scholes.
+
+**ID.** Put Amerika bisa bernilai lebih tinggi daripada versi Eropanya karena exercise lebih awal memperoleh bunga atas strike. Lattice binomial (CRR) dan trinomial menangani hal ini; harga Eropa dari lattice konvergen ke Black-Scholes.
+
+#!csharp
+
+foreach (int steps in new[] { 50, 200, 1000 })
+{
+    double eu = LatticePricer.Binomial(OptionType.Put, ExerciseStyle.European, S, K, T, r, q, vol, steps);
+    double am = LatticePricer.Binomial(OptionType.Put, ExerciseStyle.American, S, K, T, r, q, vol, steps);
+    Console.WriteLine($"{steps,5} steps: European {eu:F4} (BS {put.Price:F4})  American {am:F4}  early-exercise premium {am - eu:F4}");
+}
+
+#!markdown
+
+## Monte Carlo and exotics / Monte Carlo dan opsi eksotik
+
+**EN.** Asian options average the price along the path; barrier options switch on or off when a level is touched. Antithetic variates and a geometric-Asian control variate shrink the standard error.
+
+**ID.** Opsi Asia merata-ratakan harga sepanjang jalur; opsi barrier aktif atau mati ketika sebuah level tersentuh. Antithetic variates dan control variate Asia geometrik memperkecil galat standar.
+
+#!csharp
+
+var mc = new MonteCarloPricer(S, r, q, vol, new MonteCarloSettings(Paths: 100_000, Steps: 126, Seed: 3));
+var eu = mc.European(OptionType.Call, K, T);
+var asian = mc.AsianArithmetic(OptionType.Call, K, T);
+var knockOut = mc.Barrier(OptionType.Call, BarrierType.UpAndOut, K, 130, T);
+Console.WriteLine($"European call  {eu.Price:F4} ± {eu.StandardError:F4} (BS {call.Price:F4})");
+Console.WriteLine($"Asian call     {asian.Price:F4} ± {asian.StandardError:F4}");
+Console.WriteLine($"Up-and-out 130 {knockOut.Price:F4} ± {knockOut.StandardError:F4}");
+
+#!markdown
+
+## Stochastic volatility and smiles / Volatilitas stokastik dan smile
+
+**EN.** Markets price out-of-the-money puts at higher implied volatility than calls: the skew. Heston produces it from correlated variance; SABR fits it directly. Below, Heston prices are inverted to Black-Scholes implied volatilities across strikes.
+
+**ID.** Pasar memberi harga put out-of-the-money dengan volatilitas tersirat lebih tinggi daripada call: inilah skew. Heston menghasilkannya dari varians yang berkorelasi; SABR mencocokkannya secara langsung. Di bawah ini harga Heston dibalik menjadi volatilitas tersirat Black-Scholes di berbagai strike.
+
+#!csharp
+
+var heston = new HestonParameters(V0: 0.0625, Kappa: 2.0, Theta: 0.0625, Sigma: 0.5, Rho: -0.7);
+var strikes = Enumerable.Range(0, 21).Select(i => 70.0 + 3 * i).ToArray();
+var hestonVols = strikes.Select(k =>
+{
+    var type = k < S ? OptionType.Put : OptionType.Call;
+    double price = HestonModel.Price(type, S, k, T, r, q, heston);
+    return BlackScholes.ImpliedVolatility(type, price, S, k, T, r, q);
+}).ToArray();
+double forward = S * Math.Exp((r - q) * T);
+var sabr = SabrModel.Calibrate(forward, T, strikes, hestonVols, beta: 0.5);
+var sabrVols = strikes.Select(k => SabrModel.ImpliedVolatility(forward, k, T, sabr)).ToArray();
+Console.WriteLine($"SABR fit to the Heston smile: α={sabr.Alpha:F3} ρ={sabr.Rho:F3} ν={sabr.Nu:F3}");
+display(HTML(Charts.Line(new[]
+{
+    new LineSeries("Heston implied vol", hestonVols) { Color = "#6366F1" },
+    new LineSeries("SABR fit", sabrVols) { Color = "#FBBF24", Dash = "6 4" },
+}, new ChartOptions { Title = "Volatility smile (T = 6 months)", XLabel = "Strike", YFormat = "P0", Height = 340 }, x: strikes)));
+
+#!markdown
+
+## GPU Monte Carlo / Monte Carlo di GPU
+
+**EN.** `GpuContext.CreateBest()` picks CUDA, then OpenCL, then the CPU accelerator. Random numbers are counter-based, so GPU and CPU runs agree.
+
+**ID.** `GpuContext.CreateBest()` memilih CUDA, lalu OpenCL, lalu akselerator CPU. Bilangan acak berbasis counter, sehingga hasil di GPU dan CPU sama.
+
+#!csharp
+
+foreach (var device in GpuContext.ListDevices())
+    Console.WriteLine($"  {device.Name} [{device.Backend}] usable={device.IsUsable} fp64={device.SupportsFloat64}");
+using (var gpu = GpuContext.CreateBest())
+{
+    var pricer = new GpuOptionPricer(gpu);
+    var g = pricer.MonteCarloEuropean(S, K, T, r, q, vol, isCall: true, paths: 2_000_000);
+    Console.WriteLine($"{g.Device}: {g.Price:F4} ± {g.HalfWidth95:F4} (95%) in {g.Elapsed.TotalMilliseconds:F0} ms — BS {call.Price:F4}");
+}

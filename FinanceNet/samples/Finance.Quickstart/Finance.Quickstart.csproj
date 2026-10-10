@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Finance.Core/Finance.Core.csproj" />
+    <ProjectReference Include="../../src/Finance.Math/Finance.Math.csproj" />
+    <ProjectReference Include="../../src/Finance.DataFrame/Finance.DataFrame.csproj" />
+    <ProjectReference Include="../../src/Finance.TimeSeries/Finance.TimeSeries.csproj" />
+    <ProjectReference Include="../../src/Finance.MarketData/Finance.MarketData.csproj" />
+    <ProjectReference Include="../../src/Finance.Pricing/Finance.Pricing.csproj" />
+    <ProjectReference Include="../../src/Finance.Risk/Finance.Risk.csproj" />
+    <ProjectReference Include="../../src/Finance.Portfolio/Finance.Portfolio.csproj" />
+    <ProjectReference Include="../../src/Finance.Backtesting/Finance.Backtesting.csproj" />
+    <ProjectReference Include="../../src/Finance.ML/Finance.ML.csproj" />
+    <ProjectReference Include="../../src/Finance.NewsAnalytics/Finance.NewsAnalytics.csproj" />
+    <ProjectReference Include="../../src/Finance.Visualization/Finance.Visualization.csproj" />
+    <ProjectReference Include="../../src/Finance.GPU/Finance.GPU.csproj" />
+    <ProjectReference Include="../../src/Finance.RustBridge/Finance.RustBridge.csproj" />
+  </ItemGroup>
+
+</Project>

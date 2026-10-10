@@ -1,0 +1,111 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 14 · Fixed Income & Credit
+
+**English.** Fixed income starts with the yield curve: discount factors for every date. `Finance.Pricing` bootstraps curves from deposits, FRAs and swaps, fits Nelson-Siegel-Svensson, prices fixed-rate bonds with full analytics (yield, duration, convexity, DV01, accrued interest), values interest-rate swaps and swaptions, and models credit with hazard curves and credit default swaps.
+
+**Bahasa Indonesia.** Pendapatan tetap berawal dari kurva imbal hasil: faktor diskonto untuk setiap tanggal. `Finance.Pricing` melakukan bootstrap kurva dari deposito, FRA dan swap, mencocokkan Nelson-Siegel-Svensson, menilai obligasi kupon tetap dengan analitik lengkap (yield, durasi, konveksitas, DV01, bunga berjalan), menilai interest-rate swap dan swaption, serta memodelkan kredit dengan kurva hazard dan credit default swap.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.Pricing, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core.Time;
+using Finance.Pricing.Rates;
+using Finance.Pricing.Credit;
+using Finance.Visualization;
+
+#!markdown
+
+## Bootstrapping the curve / Bootstrap kurva
+
+**EN.** Short maturities come from deposits, the 6×12 point from an FRA, the long end from par swap rates. Each instrument is repriced exactly by the bootstrapped curve.
+
+**ID.** Jatuh tempo pendek berasal dari deposito, titik 6×12 dari FRA, dan ujung panjang dari suku bunga par swap. Setiap instrumen dinilai ulang secara tepat oleh kurva hasil bootstrap.
+
+#!csharp
+
+var instruments = new ICurveInstrument[]
+{
+    new DepositInstrument(0.25, 0.0530), new DepositInstrument(0.5, 0.0525),
+    new FraInstrument(0.5, 1.0, 0.0500),
+    new SwapInstrument(2, 0.0465), new SwapInstrument(3, 0.0440), new SwapInstrument(5, 0.0420),
+    new SwapInstrument(7, 0.0415), new SwapInstrument(10, 0.0418), new SwapInstrument(20, 0.0430), new SwapInstrument(30, 0.0425),
+};
+var curve = CurveBootstrapper.Bootstrap(instruments);
+Console.WriteLine("Max repricing error: " + instruments.Max(i => Math.Abs(i.PricingError(curve))).ToString("E2"));
+var tenors = Enumerable.Range(1, 60).Select(i => i * 0.5).ToArray();
+var zeros = tenors.Select(t => curve.ZeroRate(t)).ToArray();
+var forwards = tenors.Select(t => curve.ForwardRate(t, t + 0.5)).ToArray();
+var nss = NelsonSiegelSvensson.FitSvensson(tenors, zeros);
+Console.WriteLine($"Svensson fit: β0={nss.Beta0:F4} β1={nss.Beta1:F4} β2={nss.Beta2:F4} β3={nss.Beta3:F4} τ1={nss.Tau1:F2} τ2={nss.Tau2:F2}");
+display(HTML(Charts.Line(new[]
+{
+    new LineSeries("Zero rate", zeros) { Color = "#6366F1" },
+    new LineSeries("6M forward", forwards) { Color = "#FBBF24" },
+    new LineSeries("Svensson fit", tenors.Select(t => nss.ZeroRate(t)).ToArray()) { Color = "#2DD4BF", Dash = "5 4" },
+}, new ChartOptions { Title = "Bootstrapped curve (inverted front end)", XLabel = "Years", YFormat = "P2", Height = 340 }, x: tenors)));
+
+#!markdown
+
+## Bond analytics / Analitik obligasi
+
+**EN.** A 10-year 4.5% semi-annual bond. Modified duration is the % price change for a 1% yield move; convexity is the second-order correction; DV01 is the price change for one basis point.
+
+**ID.** Obligasi 10 tahun kupon 4,5% semesteran. Durasi termodifikasi adalah perubahan harga dalam % untuk perubahan yield 1%; konveksitas adalah koreksi orde kedua; DV01 adalah perubahan harga untuk satu basis poin.
+
+#!csharp
+
+var settle = new DateOnly(2025, 3, 17);
+var bond = new FixedRateBond(new DateOnly(2025, 1, 15), new DateOnly(2035, 1, 15), 0.045, frequency: 2);
+var a = bond.Analytics(0.0430, settle);
+Console.WriteLine($"Clean {a.CleanPrice:F4}  dirty {a.DirtyPrice:F4}  accrued {a.AccruedInterest:F4}");
+Console.WriteLine($"YTM {a.YieldToMaturity:P3}  Macaulay {a.MacaulayDuration:F3}  modified {a.ModifiedDuration:F3}  convexity {a.Convexity:F2}  DV01 {a.Dv01:F4}");
+double up = bond.CleanPrice(0.0430 + 0.01, settle) - a.CleanPrice;
+double approx = -a.ModifiedDuration * 0.01 * a.DirtyPrice + 0.5 * a.Convexity * 0.0001 * a.DirtyPrice;
+Console.WriteLine($"+100bp: exact {up:F3}, duration+convexity approximation {approx:F3}");
+Console.WriteLine($"Price off the curve {bond.DirtyPrice(curve, settle):F4}; Z-spread at clean 99.00 = {bond.ZSpread(curve, 99.0, settle) * 1e4:F1} bp");
+
+#!markdown
+
+## Swaps and swaptions / Swap dan swaption
+
+**EN.** A 5-year payer swap at 4.00% has positive value when the par rate is higher. A 1y×5y payer swaption is priced with Black's model on the forward swap rate.
+
+**ID.** Payer swap 5 tahun pada 4,00% bernilai positif bila suku bunga par lebih tinggi. Payer swaption 1y×5y dinilai dengan model Black atas forward swap rate.
+
+#!csharp
+
+var swap = new InterestRateSwap(Notional: 10_000_000, FixedRate: 0.04, Maturity: 5, PayFixed: true);
+Console.WriteLine($"Par rate {swap.ParRate(curve):P3}  NPV {swap.Npv(curve):N0}  DV01 {swap.Dv01(curve):N0}");
+var swaption = new Swaption(Expiry: 1, Tenor: 5, Strike: 0.042, Payer: true, Notional: 10_000_000);
+Console.WriteLine($"Forward swap rate {swaption.ForwardSwapRate(curve):P3}; Black (20% vol) {swaption.PriceBlack(curve, 0.20):N0}; Bachelier (90bp) {swaption.PriceBachelier(curve, 0.009):N0}");
+var frn = new FloatingRateNote(Maturity: 3, Frequency: 4, QuotedMargin: 0.008);
+Console.WriteLine($"3y FRN (+80bp) price at 50bp discount margin: {frn.Price(curve, discountMargin: 0.005):F4}");
+
+#!markdown
+
+## Credit default swaps / Credit default swap
+
+**EN.** Market CDS spreads imply a hazard (default-intensity) curve. With 40% recovery, the "credit triangle" says hazard ≈ spread / (1 − R). The protection buyer's NPV is protection leg minus premium leg.
+
+**ID.** Spread CDS pasar menyiratkan kurva hazard (intensitas gagal bayar). Dengan recovery 40%, "segitiga kredit" menyatakan hazard ≈ spread / (1 − R). NPV pembeli proteksi adalah leg proteksi dikurangi leg premi.
+
+#!csharp
+
+double[] maturities = { 1, 3, 5, 7, 10 };
+double[] spreads = { 0.0060, 0.0085, 0.0110, 0.0125, 0.0140 };
+var hazard = CreditDefaultSwap.BootstrapHazard(curve, maturities, spreads, recovery: 0.4);
+for (int i = 0; i < maturities.Length; i++)
+    Console.WriteLine($"{maturities[i],4}y spread {spreads[i] * 1e4,5:F0}bp → hazard {hazard.Hazards[i]:P2} (triangle {CreditDefaultSwap.CreditTriangleHazard(spreads[i]):P2}), survival {hazard.SurvivalProbability(maturities[i]):P1}");
+var cds = new CreditDefaultSwap(Notional: 10_000_000, Spread: 0.0100, Maturity: 5);
+Console.WriteLine($"5y CDS at 100bp: par spread {cds.ParSpread(curve, hazard) * 1e4:F1} bp, NPV (protection buyer) {cds.Npv(curve, hazard):N0}, risky duration {cds.RiskyDuration(curve, hazard):F3}");

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Finance.NewsAnalytics</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Finance.Core/Finance.Core.csproj" />
+    <ProjectReference Include="../Finance.Math/Finance.Math.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Finance.AI.Tests" />
+  </ItemGroup>
+
+</Project>

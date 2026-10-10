@@ -1,0 +1,41 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Finance.Benchmarks/Finance.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/Finance.Gallery/Finance.Gallery.csproj" />
+    <Project Path="samples/Finance.Quickstart/Finance.Quickstart.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Finance.AlternativeData/Finance.AlternativeData.csproj" />
+    <Project Path="src/Finance.Backtesting/Finance.Backtesting.csproj" />
+    <Project Path="src/Finance.Core/Finance.Core.csproj" />
+    <Project Path="src/Finance.DataFrame/Finance.DataFrame.csproj" />
+    <Project Path="src/Finance.Execution/Finance.Execution.csproj" />
+    <Project Path="src/Finance.GPU/Finance.GPU.csproj" />
+    <Project Path="src/Finance.LLM/Finance.LLM.csproj" />
+    <Project Path="src/Finance.MarketData/Finance.MarketData.csproj" />
+    <Project Path="src/Finance.Math/Finance.Math.csproj" />
+    <Project Path="src/Finance.ML/Finance.ML.csproj" />
+    <Project Path="src/Finance.NewsAnalytics/Finance.NewsAnalytics.csproj" />
+    <Project Path="src/Finance.Portfolio/Finance.Portfolio.csproj" />
+    <Project Path="src/Finance.Pricing/Finance.Pricing.csproj" />
+    <Project Path="src/Finance.Risk/Finance.Risk.csproj" />
+    <Project Path="src/Finance.RustBridge/Finance.RustBridge.csproj" />
+    <Project Path="src/Finance.TimeSeries/Finance.TimeSeries.csproj" />
+    <Project Path="src/Finance.Visualization/Finance.Visualization.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Finance.AI.Tests/Finance.AI.Tests.csproj" />
+    <Project Path="tests/Finance.Analytics.Tests/Finance.Analytics.Tests.csproj" />
+    <Project Path="tests/Finance.Data.Tests/Finance.Data.Tests.csproj" />
+    <Project Path="tests/Finance.Foundation.Tests/Finance.Foundation.Tests.csproj" />
+    <Project Path="tests/Finance.Native.Tests/Finance.Native.Tests.csproj" />
+    <Project Path="tests/Finance.Portfolio.Tests/Finance.Portfolio.Tests.csproj" />
+    <Project Path="tests/Finance.Quant.Tests/Finance.Quant.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/IconGen/IconGen.csproj" />
+    <Project Path="tools/NotebookCheck/NotebookCheck.csproj" />
+  </Folder>
+</Solution>

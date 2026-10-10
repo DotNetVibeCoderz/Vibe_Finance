@@ -1,0 +1,149 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 08 · Financial NLP
+
+**English.** Markets move on words: earnings releases, guidance, analyst notes, regulatory news. `Finance.NewsAnalytics` turns text into signals with a Loughran-McDonald-style financial lexicon (general-purpose sentiment lists misread words like *liability* or *tax*), entity and ticker extraction, event classification, near-duplicate detection and earnings-call analysis. `Finance.LLM` adds FinGPT-style tasks on any chat model and FinBERT through Hugging Face.
+
+**Bahasa Indonesia.** Pasar bergerak karena kata-kata: rilis laba, panduan (guidance), catatan analis, berita regulasi. `Finance.NewsAnalytics` mengubah teks menjadi sinyal dengan leksikon keuangan bergaya Loughran-McDonald (daftar sentimen umum salah membaca kata seperti *liability* atau *tax*), ekstraksi entitas dan ticker, klasifikasi event, deteksi berita hampir-duplikat, dan analisis earnings call. `Finance.LLM` menambahkan tugas ala FinGPT pada model chat apa pun serta FinBERT melalui Hugging Face.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.NewsAnalytics, 0.1.0"
+#r "nuget: Gravicode.Finance.LLM, 0.1.0"
+
+using Finance.NewsAnalytics;
+using Finance.LLM;
+
+string[] headlines =
+{
+    "Apple beats earnings expectations as iPhone revenue surges to a record",
+    "Tesla shares slump after analysts downgrade the stock on weak delivery guidance",
+    "Microsoft announces $60 billion share buyback and raises its quarterly dividend",
+    "Regulators open an antitrust investigation into Alphabet's advertising business",
+    "Nvidia raises full-year guidance; demand for AI chips remains strong",
+    "Amazon faces lawsuit over alleged violations of consumer protection rules",
+    "Uncertainty grows as the Fed signals rates may stay higher for longer",
+    "Apple beats earnings expectations as iPhone revenue surges to a record.",
+};
+
+#!markdown
+
+## Lexicon sentiment / Sentimen leksikon
+
+**EN.** Each headline is tokenised, matched against positive, negative, uncertainty, litigious and constraining word lists, with negation ("not strong") and intensifiers handled. The score is in [-1, 1].
+
+**ID.** Setiap judul berita dipecah menjadi token lalu dicocokkan dengan daftar kata positif, negatif, ketidakpastian, litigasi dan pembatas, dengan penanganan negasi ("not strong") dan penguat. Skornya berada di rentang [-1, 1].
+
+#!csharp
+
+var lexicon = new LexiconSentimentModel();
+var extractor = new EntityExtractor();
+foreach (var h in headlines)
+{
+    var s = lexicon.Score(h);
+    var tickers = extractor.ExtractTickers(h);
+    var events = EventClassifier.Classify(h);
+    Console.WriteLine($"{s.Score,6:+0.00;-0.00;0.00} {s.Label,-8} [{string.Join(",", tickers)}] {events}");
+    Console.WriteLine($"         {h}");
+}
+
+#!markdown
+
+## Near-duplicates / Berita hampir-duplikat
+
+**EN.** Wire stories are re-published with small edits. MinHash signatures over word shingles estimate Jaccard similarity cheaply, so duplicates can be clustered before they double-count in a sentiment index.
+
+**ID.** Berita kantor berita sering diterbitkan ulang dengan sedikit perubahan. Tanda tangan MinHash atas shingle kata memperkirakan kemiripan Jaccard secara murah, sehingga duplikat dapat dikelompokkan sebelum terhitung ganda dalam indeks sentimen.
+
+#!csharp
+
+var detector = new DuplicateDetector();
+Console.WriteLine($"Jaccard(first, last) = {detector.Jaccard(headlines[0], headlines[^1]):F2}");
+var items = headlines.Select((h, i) => new NewsItem(h, DateTimeOffset.UtcNow.AddMinutes(-i))).ToList();
+var clusters = detector.Cluster(items);
+Console.WriteLine($"{items.Count} headlines → {clusters.Count} distinct stories");
+
+#!markdown
+
+## Parsing RSS / Membaca RSS
+
+**EN.** `FeedReader` parses RSS 2.0 and Atom. Here we parse an embedded sample; `FeedReader.YahooFinanceUrl("AAPL")` and `GoogleNewsUrl(...)` give live feeds.
+
+**ID.** `FeedReader` membaca RSS 2.0 dan Atom. Di sini kita membaca contoh yang disematkan; `FeedReader.YahooFinanceUrl("AAPL")` dan `GoogleNewsUrl(...)` memberikan feed langsung.
+
+#!csharp
+
+string rss = """
+<rss version="2.0"><channel><title>Sample</title>
+<item><title>Meta shares jump after strong advertising growth</title><pubDate>Mon, 06 Oct 2025 13:00:00 GMT</pubDate><link>https://example.com/1</link></item>
+<item><title>Intel cuts outlook amid weak PC demand</title><pubDate>Mon, 06 Oct 2025 14:30:00 GMT</pubDate><link>https://example.com/2</link></item>
+</channel></rss>
+""";
+var parsed = FeedReader.Parse(rss);
+var scored = await new NewsIntelligence().ProcessAsync(parsed);
+foreach (var n in scored)
+    Console.WriteLine($"{n.Item.Published:yyyy-MM-dd HH:mm}  {n.Sentiment.Score:+0.00;-0.00}  [{string.Join(",", n.Item.Tickers)}]  {n.Item.Title}");
+
+#!markdown
+
+## Earnings-call analysis / Analisis earnings call
+
+**EN.** The analyser splits prepared remarks from the Q&A at the operator's hand-off. A drop in tone from scripted remarks to unscripted answers is a classic warning sign.
+
+**ID.** Penganalisis memisahkan sambutan yang sudah disiapkan dari sesi tanya jawab pada saat operator menyerahkan giliran. Penurunan nada dari sambutan tertulis ke jawaban spontan adalah tanda peringatan klasik.
+
+#!csharp
+
+string transcript = """
+Prepared remarks. Thank you everyone. We delivered record revenue and strong margin expansion this quarter.
+Demand was robust across regions and we expect continued growth next year. We are raising our full-year guidance.
+Operator: We will now begin the question-and-answer session.
+Analyst: Can you talk about supply constraints? CEO: There is some uncertainty around component availability and we may see delays.
+Analyst: What about the pending litigation? CFO: We believe the lawsuit is without merit, but outcomes are difficult to predict.
+""";
+var call = EarningsCallAnalyzer.Analyze(transcript);
+Console.WriteLine($"Prepared remarks tone {call.PreparedRemarks.Score:+0.00;-0.00} | Q&A tone {call.QuestionAndAnswer.Score:+0.00;-0.00} | shift {call.ToneShift:+0.00;-0.00}");
+Console.WriteLine($"Uncertainty ratio {call.UncertaintyRatio:P1}; topics: {string.Join(", ", call.TopTopics.Take(5).Select(t => t.Term))}");
+foreach (var f in call.ForwardLookingStatements) Console.WriteLine("  FLS: " + f.Trim());
+
+#!markdown
+
+## Optional: LLM and FinBERT / Opsional: LLM dan FinBERT
+
+**EN.** Set `FINANCENET_LLM_KEYFILE` (or `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT`) to run FinGPT-style tasks; set `FINANCENET_HF_TOKENFILE` for FinBERT. Keys are read at run time and never printed.
+
+**ID.** Atur `FINANCENET_LLM_KEYFILE` (atau `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_ENDPOINT`) untuk menjalankan tugas ala FinGPT; atur `FINANCENET_HF_TOKENFILE` untuk FinBERT. Kunci dibaca saat dijalankan dan tidak pernah dicetak.
+
+#!csharp
+
+// optional-live
+try
+{
+    var settings = LlmSettings.FromEnvironment();
+    if (settings is null) Console.WriteLine("No LLM configured — skipping.");
+    else
+    {
+        var tasks = new FinancialTasks(settings.CreateChatModel());
+        var sentiment = await tasks.ClassifySentimentAsync(headlines[1]);
+        Console.WriteLine($"LLM sentiment: {sentiment.Label} ({sentiment.Score:+0.00;-0.00}) — {sentiment.Rationale}");
+        var summary = await tasks.SummarizeHeadlinesAsync(headlines);
+        Console.WriteLine($"Summary: {summary.Summary}\nThemes: {string.Join(", ", summary.KeyThemes)}");
+    }
+    if (Environment.GetEnvironmentVariable("FINANCENET_HF_TOKENFILE") is { Length: > 0 } tokenFile)
+    {
+        var finbert = new FinBertSentiment(new HuggingFaceInference(new System.Net.Http.HttpClient(), LlmSettings.ReadHuggingFaceToken(tokenFile)));
+        var fb = await finbert.AnalyzeAsync(headlines[0]);
+        Console.WriteLine($"FinBERT: {fb.Label} ({fb.Confidence:P0})");
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Live NLP unavailable: {ex.Message}");
+}

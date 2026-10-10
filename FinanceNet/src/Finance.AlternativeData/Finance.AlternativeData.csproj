@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Finance.AlternativeData</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Finance.Core/Finance.Core.csproj" />
+    <ProjectReference Include="../Finance.Math/Finance.Math.csproj" />
+  </ItemGroup>
+
+</Project>

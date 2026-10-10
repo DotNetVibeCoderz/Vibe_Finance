@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Finance.Mathematics</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Finance.Core/Finance.Core.csproj" />
+    <PackageReference Include="Gravicode.Science.GraviNum" />
+  </ItemGroup>
+
+</Project>

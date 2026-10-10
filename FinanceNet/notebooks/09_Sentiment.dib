@@ -1,0 +1,118 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 09 · Sentiment Signals
+
+**English.** Individual headlines are noisy; aggregated over time they become a signal. This notebook builds a decay-weighted daily news-sentiment index per ticker, aggregates social-media posts into engagement-weighted sentiment, detects abnormal "buzz" with z-scores, and tests whether sentiment leads returns.
+
+**Bahasa Indonesia.** Judul berita satu per satu penuh derau; bila diagregasi dari waktu ke waktu, ia menjadi sinyal. Notebook ini membangun indeks sentimen berita harian berbobot peluruhan per ticker, mengagregasi unggahan media sosial menjadi sentimen berbobot engagement, mendeteksi "buzz" abnormal dengan z-score, dan menguji apakah sentimen mendahului imbal hasil.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.Math, 0.1.0"
+#r "nuget: Gravicode.Finance.NewsAnalytics, 0.1.0"
+#r "nuget: Gravicode.Finance.AlternativeData, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core;
+using Finance.Mathematics;
+using Finance.NewsAnalytics;
+using Finance.AlternativeData.Social;
+using Finance.Visualization;
+
+#!markdown
+
+## A synthetic news flow with a hidden signal / Arus berita sintetis dengan sinyal tersembunyi
+
+**EN.** We generate 120 days of headlines whose tone follows a slowly moving "true sentiment", and returns that react to that sentiment the next day plus noise. Then we check whether the pipeline recovers the relationship.
+
+**ID.** Kita membangkitkan judul berita selama 120 hari yang nadanya mengikuti "sentimen sebenarnya" yang bergerak perlahan, serta imbal hasil yang bereaksi terhadap sentimen tersebut pada hari berikutnya ditambah derau. Lalu kita periksa apakah pipeline menemukan kembali hubungan tersebut.
+
+#!csharp
+
+var rng = new FastRandom(4);
+string[] good = { "beats expectations", "raises guidance", "record revenue", "strong demand", "upgraded to buy" };
+string[] bad = { "misses estimates", "cuts outlook", "faces lawsuit", "weak demand", "downgraded to sell" };
+var start = new DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero);
+var news = new List<NewsItem>();
+var trueSentiment = new double[120];
+var returns = new double[120];
+double latent = 0;
+for (int d = 0; d < 120; d++)
+{
+    latent = 0.92 * latent + 0.25 * rng.NextGaussian();
+    trueSentiment[d] = Math.Tanh(latent);
+    int count = 2 + rng.NextInt(6);
+    for (int k = 0; k < count; k++)
+    {
+        bool positive = rng.NextDouble() < 0.5 + 0.4 * trueSentiment[d];
+        var phrase = positive ? good[rng.NextInt(good.Length)] : bad[rng.NextInt(bad.Length)];
+        news.Add(new NewsItem($"Acme Corp {phrase} ({d}-{k})", start.AddDays(d).AddHours(8 + k)) { Tickers = new[] { "ACME" } });
+    }
+    returns[d] = (d > 0 ? 0.004 * trueSentiment[d - 1] : 0) + 0.01 * rng.NextGaussian();
+}
+Console.WriteLine($"{news.Count} headlines over 120 days");
+
+#!markdown
+
+## News sentiment index / Indeks sentimen berita
+
+**EN.** `NewsIntelligence.ProcessAsync` scores and de-duplicates; `SentimentTimeSeries.Build` turns the scores into a daily index with exponential decay (half-life three days), so one loud day fades rather than vanishing overnight.
+
+**ID.** `NewsIntelligence.ProcessAsync` memberi skor dan menghapus duplikat; `SentimentTimeSeries.Build` mengubah skor menjadi indeks harian dengan peluruhan eksponensial (paruh waktu tiga hari), sehingga satu hari yang ramai memudar perlahan alih-alih hilang dalam semalam.
+
+#!csharp
+
+var scored = await new NewsIntelligence().ProcessAsync(news, deduplicate: false);
+var index = SentimentTimeSeries.Build(scored, "ACME", halfLifeDays: 3, from: DateOnly.FromDateTime(start.UtcDateTime), to: DateOnly.FromDateTime(start.UtcDateTime.AddDays(119)));
+var signal = index.Select(d => d.DecayedScore).ToArray();
+Console.WriteLine($"Index days: {index.Count}; correlation with true sentiment {Stats.Correlation(signal, trueSentiment[..signal.Length]):F2}");
+
+var lead = Stats.Correlation(signal[..^1], returns[1..signal.Length]);
+var same = Stats.Correlation(signal, returns[..signal.Length]);
+Console.WriteLine($"Corr(sentiment today, return tomorrow) = {lead:F3}; same-day = {same:F3}");
+display(HTML(Charts.Line(new[]
+{
+    new LineSeries("News sentiment index", signal) { Color = "#2DD4BF" },
+    new LineSeries("True latent sentiment", trueSentiment) { Color = "#6366F1", Dash = "5 4" },
+}, new ChartOptions { Title = "Recovered sentiment", Height = 300 })));
+
+var summary = NewsIntelligence.Summarize(scored, "ACME");
+Console.WriteLine($"ACME: {summary.ArticleCount} articles, average {summary.AverageSentiment:F2}, recent {summary.RecentSentiment:F2}, trend {summary.SentimentTrend:F2}");
+
+#!markdown
+
+## Social media and buzz / Media sosial dan buzz
+
+**EN.** Social posts are weighted by engagement (log of likes, comments and shares, so a single viral post cannot dominate). Buzz z-scores flag hours when a ticker is mentioned far more than usual.
+
+**ID.** Unggahan media sosial ditimbang berdasarkan engagement (logaritma like, komentar dan share, sehingga satu unggahan viral tidak mendominasi). Z-score buzz menandai jam-jam ketika sebuah ticker disebut jauh lebih sering dari biasanya.
+
+#!csharp
+
+var posts = new List<SocialPost>();
+var t0 = new DateTime(2025, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+for (int h = 0; h < 96; h++)
+{
+    int n = h is >= 70 and < 74 ? 25 : 3 + rng.NextInt(4);   // a spike at hour 70
+    for (int k = 0; k < n; k++)
+    {
+        bool bull = rng.NextDouble() < (h >= 70 ? 0.8 : 0.5);
+        posts.Add(new SocialPost($"{h}-{k}", "reddit", "u" + k, bull ? "$ACME to the moon, strong buy" : "$ACME looks weak, selling", t0.AddHours(h).AddMinutes(k),
+            Likes: rng.NextInt(200), Comments: rng.NextInt(40)));
+    }
+}
+var agg = new SocialSentimentAggregator().Aggregate(posts, TimeSpan.FromHours(1)).Where(s => s.Symbol == "ACME").ToList();
+var mentions = agg.Select(a => (double)a.Mentions).ToList();
+var z = BuzzDetector.ZScores(mentions, 24);
+var spikes = BuzzDetector.Spikes(mentions, 24, 3);
+Console.WriteLine($"{posts.Count} posts; buzz spikes at hours {string.Join(", ", spikes)}; sentiment during spike {agg[spikes.FirstOrDefault()].EngagementWeightedSentiment:+0.00;-0.00}");
+display(HTML(Charts.Line(new[] { new LineSeries("Mentions / hour", mentions.ToArray()) { Area = true, Color = "#38BDF8" }, new LineSeries("Buzz z-score", z) { Color = "#FBBF24" } },
+    new ChartOptions { Title = "Social buzz", Height = 280 })));

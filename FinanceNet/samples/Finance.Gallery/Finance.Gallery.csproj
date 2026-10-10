@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>Finance.Gallery</RootNamespace>
+    <AssemblyName>Finance.Gallery</AssemblyName>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <ApplicationIcon>..\..\assets\app.ico</ApplicationIcon>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="Avalonia.Headless" />
+    <PackageReference Include="Avalonia.Skia" />
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="..\..\assets\icon-512.png" Link="Assets\icon-512.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Finance.Core/Finance.Core.csproj" />
+    <ProjectReference Include="../../src/Finance.Math/Finance.Math.csproj" />
+    <ProjectReference Include="../../src/Finance.Pricing/Finance.Pricing.csproj" />
+    <ProjectReference Include="../../src/Finance.Risk/Finance.Risk.csproj" />
+    <ProjectReference Include="../../src/Finance.Portfolio/Finance.Portfolio.csproj" />
+    <ProjectReference Include="../../src/Finance.Backtesting/Finance.Backtesting.csproj" />
+    <ProjectReference Include="../../src/Finance.DataFrame/Finance.DataFrame.csproj" />
+    <ProjectReference Include="../../src/Finance.MarketData/Finance.MarketData.csproj" />
+    <ProjectReference Include="../../src/Finance.AlternativeData/Finance.AlternativeData.csproj" />
+    <ProjectReference Include="../../src/Finance.Execution/Finance.Execution.csproj" />
+    <ProjectReference Include="../../src/Finance.TimeSeries/Finance.TimeSeries.csproj" />
+    <ProjectReference Include="../../src/Finance.ML/Finance.ML.csproj" />
+    <ProjectReference Include="../../src/Finance.LLM/Finance.LLM.csproj" />
+    <ProjectReference Include="../../src/Finance.NewsAnalytics/Finance.NewsAnalytics.csproj" />
+    <ProjectReference Include="../../src/Finance.RustBridge/Finance.RustBridge.csproj" />
+    <ProjectReference Include="../../src/Finance.GPU/Finance.GPU.csproj" />
+  </ItemGroup>
+
+</Project>

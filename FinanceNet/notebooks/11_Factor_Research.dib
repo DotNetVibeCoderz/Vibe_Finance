@@ -1,0 +1,109 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 11 · Factor Research
+
+**English.** A factor (value, momentum, quality, …) ranks assets; it is useful if high-ranked assets subsequently outperform low-ranked ones. `Finance.ML` provides Alphalens-style diagnostics — information coefficient (IC), IC decay, quantile returns, long-short spread, turnover — plus time-series factor regressions (Fama-French style alphas and betas), Fama-MacBeth cross-sectional premia and PCA statistical factors.
+
+**Bahasa Indonesia.** Faktor (value, momentum, quality, …) memeringkat aset; faktor berguna bila aset berperingkat tinggi kemudian mengungguli aset berperingkat rendah. `Finance.ML` menyediakan diagnostik ala Alphalens — information coefficient (IC), peluruhan IC, imbal hasil per kuantil, selisih long-short, turnover — serta regresi faktor deret waktu (alpha dan beta ala Fama-French), premi lintas-sektoral Fama-MacBeth dan faktor statistik PCA.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.Math, 0.1.0"
+#r "nuget: Gravicode.Finance.ML, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core;
+using Finance.Mathematics;
+using Finance.ML;
+using Finance.Visualization;
+
+#!markdown
+
+## A universe with a real factor / Semesta dengan faktor nyata
+
+**EN.** 50 assets over 500 days. Each asset has a persistent "quality" score that adds a small premium to next-day returns; the observed factor is that score plus measurement noise. A market factor drives common movement.
+
+**ID.** 50 aset selama 500 hari. Setiap aset memiliki skor "quality" yang persisten dan menambahkan premi kecil pada imbal hasil hari berikutnya; faktor yang teramati adalah skor tersebut ditambah derau pengukuran. Sebuah faktor pasar menggerakkan pergerakan bersama.
+
+#!csharp
+
+var rng = new FastRandom(31);
+int assets = 50, days = 500;
+var quality = Enumerable.Range(0, assets).Select(_ => rng.NextGaussian()).ToArray();
+var betas = Enumerable.Range(0, assets).Select(_ => 0.6 + 0.8 * rng.NextDouble()).ToArray();
+var prices = new List<double[]>();
+var factor = new List<double[]>();
+var market = new double[days];
+var level = Enumerable.Repeat(100.0, assets).ToArray();
+for (int t = 0; t < days; t++)
+{
+    market[t] = 0.0003 + 0.01 * rng.NextGaussian();
+    factor.Add(quality.Select(q => q + 0.8 * rng.NextGaussian()).ToArray());
+    for (int i = 0; i < assets; i++)
+        level[i] *= Math.Exp(betas[i] * market[t] + 0.0006 * quality[i] + 0.015 * rng.NextGaussian());
+    prices.Add((double[])level.Clone());
+}
+Console.WriteLine($"{assets} assets × {days} days");
+
+#!markdown
+
+## Alphalens-style tear sheet / Tear sheet ala Alphalens
+
+**EN.** The IC is the rank correlation between today's factor and tomorrow's returns, computed every day. A mean IC of 0.02–0.05 is already economically meaningful for daily data; the IC information ratio measures its consistency.
+
+**ID.** IC adalah korelasi peringkat antara faktor hari ini dan imbal hasil besok, dihitung setiap hari. Rata-rata IC 0,02–0,05 sudah bermakna secara ekonomi untuk data harian; rasio informasi IC mengukur konsistensinya.
+
+#!csharp
+
+var sheet = FactorResearch.Analyze(factor, prices, quantiles: 5, horizon: 1, maxDecay: 10);
+Console.WriteLine($"Mean IC {sheet.MeanIc:F4} ± {sheet.IcStdDev:F4}  IR {sheet.IcInformationRatio:F2}  mean rank IC {sheet.MeanRankIc:F4}  hit rate {sheet.HitRate:P0}");
+Console.WriteLine($"Quantile mean daily returns: {string.Join("  ", sheet.QuantileMeanReturns.Select((r, q) => $"Q{q + 1} {r * 1e4:+0.0;-0.0}bp"))}");
+Console.WriteLine($"Long-short spread {sheet.LongShortSpread * 1e4:F1} bp/day, top-quantile turnover {sheet.TopQuantileTurnover:P0}");
+display(HTML(Charts.Bar(sheet.QuantileMeanReturns.Select((_, q) => $"Q{q + 1}").ToList(), sheet.QuantileMeanReturns.Select(r => r * 1e4).ToList(),
+    new ChartOptions { Title = "Mean next-day return by factor quintile (bp)", Height = 280 })));
+display(HTML(Charts.Line(new[] { new LineSeries("IC decay", sheet.IcDecay) { Color = "#2DD4BF" } }, new ChartOptions { Title = "IC by horizon (days)", Height = 240 })));
+
+#!markdown
+
+## Factor regressions / Regresi faktor
+
+**EN.** Time-series regression of one asset on the market gives alpha and beta with t-statistics. Fama-MacBeth runs a cross-sectional regression every day and averages the premia, with standard errors from their time series. PCA recovers the dominant market factor statistically.
+
+**ID.** Regresi deret waktu satu aset terhadap pasar memberikan alpha dan beta beserta statistik-t. Fama-MacBeth menjalankan regresi lintas-sektoral setiap hari lalu merata-ratakan preminya, dengan galat standar dari deret waktunya. PCA menemukan kembali faktor pasar yang dominan secara statistik.
+
+#!csharp
+
+var assetReturns = new double[days - 1];
+for (int t = 1; t < days; t++) assetReturns[t - 1] = Math.Log(prices[t][0] / prices[t - 1][0]);
+var mkt = new Matrix(days - 1, 1);
+for (int t = 1; t < days; t++) mkt[t - 1, 0] = market[t];
+var exposure = FactorModels.TimeSeriesRegression(assetReturns, mkt, new[] { "Market" });
+Console.WriteLine($"Asset 0: true beta {betas[0]:F2}, estimated {exposure.Betas[0]:F2} (t={exposure.BetaTStats[0]:F1}); annual alpha {exposure.AnnualizedAlpha():P2} (t={exposure.AlphaTStat:F1}); R² {exposure.RSquared:F2}");
+
+var cross = new List<double[]>();
+var loads = new List<Matrix>();
+for (int t = 0; t < days - 1; t++)
+{
+    cross.Add(Enumerable.Range(0, assets).Select(i => Math.Log(prices[t + 1][i] / prices[t][i])).ToArray());
+    var e = new Matrix(assets, 1);
+    for (int i = 0; i < assets; i++) e[i, 0] = factor[t][i];
+    loads.Add(e);
+}
+var fm = FactorModels.FamaMacBeth(cross, loads, new[] { "Quality" });
+for (int k = 0; k < fm.FactorNames.Length; k++)
+    Console.WriteLine($"Fama-MacBeth premium {fm.FactorNames[k]}: {fm.MeanPremia[k] * 1e4:F2} bp/day (t={fm.TStatistics[k]:F2})");
+
+var panel = new Matrix(days - 1, assets);
+for (int t = 0; t < days - 1; t++)
+    for (int i = 0; i < assets; i++) panel[t, i] = cross[t][i];
+var pca = FactorModels.Pca(panel, 3);
+Console.WriteLine($"PCA explained variance: {string.Join(", ", pca.ExplainedVarianceRatio.Select(v => v.ToString("P1")))}");
+Console.WriteLine($"Correlation of PC1 with the true market factor: {Math.Abs(Stats.Correlation(pca.FactorReturns.Column(0), market[1..])):F3}");

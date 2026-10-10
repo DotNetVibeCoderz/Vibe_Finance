@@ -1,0 +1,160 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 07 · Financial Machine Learning
+
+**English.** Financial ML differs from textbook ML: labels overlap in time, data is non-stationary and the signal-to-noise ratio is tiny. `Finance.ML` follows López de Prado's recipes — engineered features, triple-barrier labels, purged K-fold cross-validation with an embargo — and adds random forests, SHAP explanations and reinforcement-learning trading agents built on **Gravicode.RLNet** (DQN / PPO).
+
+**Bahasa Indonesia.** ML keuangan berbeda dari ML di buku teks: label saling tumpang tindih dalam waktu, data tidak stasioner, dan rasio sinyal terhadap derau sangat kecil. `Finance.ML` mengikuti resep López de Prado — fitur hasil rekayasa, label triple-barrier, validasi silang K-fold yang dimurnikan (purged) dengan embargo — serta menambahkan random forest, penjelasan SHAP, dan agen trading reinforcement learning yang dibangun di atas **Gravicode.RLNet** (DQN / PPO).
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.Math, 0.1.0"
+#r "nuget: Gravicode.Finance.ML, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core;
+using Finance.Core.Market;
+using Finance.Mathematics;
+using Finance.ML;
+using Finance.Visualization;
+
+// A market with a weak, regime-dependent momentum effect hidden in the noise.
+var rng = new FastRandom(8);
+var bars = new List<Bar>();
+double price = 100, drift = 0;
+var day = new DateTime(2018, 1, 1);
+for (int i = 0; i < 2000; i++)
+{
+    while (day.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday) day = day.AddDays(1);
+    drift = 0.97 * drift + 0.0006 * rng.NextGaussian();
+    double r = drift + 0.012 * rng.NextGaussian();
+    double open = price, close = price * Math.Exp(r);
+    bars.Add(new Bar(day, open, Math.Max(open, close) * (1 + 0.004 * Math.Abs(rng.NextGaussian())), Math.Min(open, close) * (1 - 0.004 * Math.Abs(rng.NextGaussian())), close, 1e6 * (1 + rng.NextDouble())));
+    price = close;
+    day = day.AddDays(1);
+}
+var series = bars.ToArray();
+Console.WriteLine($"{series.Length} bars, final price {price:F2}");
+
+#!markdown
+
+## Features and labels / Fitur dan label
+
+**EN.** `FeatureEngineering.FromBars` builds lagged returns, rolling volatility, momentum, RSI, MACD and volume features (warm-up rows are dropped). The target is the sign of the next day's return. Triple-barrier labels are also shown: each event ends at a profit-taking barrier, a stop-loss barrier or a time limit.
+
+**ID.** `FeatureEngineering.FromBars` membangun fitur imbal hasil tertunda (lag), volatilitas bergulir, momentum, RSI, MACD dan volume (baris pemanasan dibuang). Targetnya adalah tanda imbal hasil hari berikutnya. Label triple-barrier juga ditampilkan: setiap event berakhir di batas ambil-untung, batas stop-loss, atau batas waktu.
+
+#!csharp
+
+var features = FeatureEngineering.FromBars(series);
+var forward = FeatureEngineering.ForwardReturns(series, features, horizon: 1);
+var rows = Enumerable.Range(0, features.Rows).Where(i => double.IsFinite(forward[i])).ToArray();
+var data = features.SelectRows(rows);
+var x = data.Values;
+var y = rows.Select(i => forward[i] > 0 ? 1.0 : 0.0).ToArray();
+Console.WriteLine($"{x.Rows} samples × {x.Columns} features: {string.Join(", ", data.Names)}");
+
+var barriers = Labeling.TripleBarrier(series, maxHolding: 10, multiplier: 2, volatilityWindow: 20);
+Console.WriteLine($"Triple-barrier events: {barriers.Count}; " + string.Join(", ", barriers.GroupBy(b => b.Hit).Select(g => $"{g.Key} {g.Count()}")));
+
+#!markdown
+
+## Random forest with purged cross-validation / Random forest dengan validasi silang purged
+
+**EN.** Ordinary K-fold leaks information because neighbouring samples share overlapping returns. Purged K-fold removes training samples whose labels overlap the test fold and adds an embargo after it.
+
+**ID.** K-fold biasa membocorkan informasi karena sampel yang berdekatan berbagi imbal hasil yang tumpang tindih. Purged K-fold membuang sampel pelatihan yang labelnya tumpang tindih dengan fold uji dan menambahkan embargo sesudahnya.
+
+#!csharp
+
+var options = new TreeOptions { MaxDepth = 5, MinSamplesLeaf = 25 };
+var cv = CrossValidation.Evaluate(() => new RandomForestClassifier(60, options).AsProbabilityRegressor(), x, y,
+    CrossValidation.PurgedKFold(x.Rows, folds: 5, labelHorizon: 1, embargoFraction: 0.01),
+    (truth, prob) => Metrics.RocAuc(truth, prob));
+Console.WriteLine("Purged 5-fold AUC: " + string.Join(", ", cv.Select(a => a.ToString("F3"))) + $"  (mean {cv.Average():F3})");
+
+int split = (int)(x.Rows * 0.7);
+var (xTrain, yTrain) = CrossValidation.Take(x, y, Enumerable.Range(0, split).ToArray());
+var (xTest, yTest) = CrossValidation.Take(x, y, Enumerable.Range(split, x.Rows - split).ToArray());
+var forest = new RandomForestClassifier(100, options);
+forest.Fit(xTrain, yTrain);
+var proba = forest.PredictProbaAll(xTest);
+Console.WriteLine($"Hold-out: accuracy {Metrics.Accuracy(yTest, proba.Select(p => p > 0.5 ? 1.0 : 0.0).ToArray()):P1}, AUC {Metrics.RocAuc(yTest, proba):F3}");
+var importance = forest.FeatureImportances.Select((v, i) => (Name: data.Names[i], v)).OrderByDescending(t => t.v).Take(8).ToList();
+display(HTML(Charts.Bar(importance.Select(t => t.Name).ToList(), importance.Select(t => t.v).ToList(), new ChartOptions { Title = "Random forest feature importance", Height = 300 })));
+
+#!markdown
+
+## Explaining a prediction with SHAP / Menjelaskan prediksi dengan SHAP
+
+**EN.** Kernel SHAP attributes a single prediction to the features, relative to a background sample. The contributions add up to the difference between the prediction and the average prediction.
+
+**ID.** Kernel SHAP mengatribusikan satu prediksi ke setiap fitur, relatif terhadap sampel latar. Jumlah kontribusinya sama dengan selisih antara prediksi tersebut dan prediksi rata-rata.
+
+#!csharp
+
+var shap = new KernelShap(forest.AsProbabilityRegressor(), xTrain, maxBackground: 40);
+var lastRow = xTest.Row(xTest.Rows - 1).ToArray();
+var explanation = shap.Explain(lastRow, data.Names, samples: 1024);
+Console.WriteLine($"P(up) = {explanation.Prediction:P1} vs base {explanation.BaseValue:P1}; sum of SHAP values {explanation.Values.Sum():+0.0000;-0.0000}");
+foreach (var (name, value) in explanation.Ranked().Take(6))
+    Console.WriteLine($"  {name,-16} {value:+0.0000;-0.0000}");
+
+#!markdown
+
+## Reinforcement learning with RLNet / Reinforcement learning dengan RLNet
+
+**EN.** A trading environment exposes the features as observations, three actions (short / flat / long) and a reward equal to P&L minus transaction costs. `DeepTradingAgent` trains a Gravicode.RLNet DQN (double-Q, dueling network) on the first 70% and is evaluated greedily on the rest. Results on noisy data vary; the point is the workflow, not a money machine.
+
+**ID.** Lingkungan trading menyajikan fitur sebagai observasi, tiga aksi (short / flat / long) dan reward berupa laba-rugi dikurangi biaya transaksi. `DeepTradingAgent` melatih DQN Gravicode.RLNet (double-Q, jaringan dueling) pada 70% data pertama lalu dievaluasi secara greedy pada sisanya. Hasil pada data yang penuh derau bervariasi; yang ditunjukkan adalah alur kerjanya, bukan mesin pencetak uang.
+
+#!csharp
+
+var scaler = Standardizer.Fit(xTrain);
+var trainEnv = new TradingEnvironment(scaler.Transform(xTrain), rows.Take(split).Select(i => forward[i]).ToArray(), transactionCost: 0.0002);
+var testEnv = new TradingEnvironment(scaler.Transform(xTest), rows.Skip(split).Select(i => forward[i]).ToArray(), transactionCost: 0.0002);
+var agent = new DeepTradingAgent(DeepRlAlgorithm.Dqn, new[] { 32, 32 }, episodeLength: 250)
+{
+    DqnOptions = new RLNet.Agents.DqnOptions
+    {
+        HiddenSizes = new[] { 32, 32 },
+        LearningRate = 1e-3f,
+        Gamma = 0.9f,
+        LearningStarts = 500,
+        BatchSize = 64,
+        TargetUpdateInterval = 250,
+        Epsilon = RLNet.Agents.Schedule.Linear(1f, 0.05f, 0.6f),
+    },
+};
+var episodeReturns = agent.Train(trainEnv, 40);
+var evaluation = agent.Evaluate(testEnv);
+double buyHold = rows.Skip(split).Sum(i => forward[i]);
+Console.WriteLine($"Trained {episodeReturns.Length} episodes; out-of-sample log return {evaluation.TotalReward:+0.000;-0.000} vs buy & hold {buyHold:+0.000;-0.000}");
+Console.WriteLine($"Time in market: long {evaluation.Positions.Count(p => p > 0)}, flat {evaluation.Positions.Count(p => p == 0)}, short {evaluation.Positions.Count(p => p < 0)}");
+display(HTML(Charts.Line(new[] { new LineSeries("DQN agent (out of sample)", evaluation.Equity) { Color = "#2DD4BF" } }, new ChartOptions { Title = "RLNet DQN equity", Height = 280 })));
+
+#!markdown
+
+## Forecasting / Peramalan
+
+**EN.** Classical forecasters remain useful baselines: AR(p) by least squares and Holt-Winters exponential smoothing.
+
+**ID.** Peramal klasik tetap berguna sebagai pembanding: AR(p) dengan kuadrat terkecil dan pemulusan eksponensial Holt-Winters.
+
+#!csharp
+
+var vol20 = data.Column(data.Names.First(n => n.StartsWith("vol", StringComparison.OrdinalIgnoreCase)));
+var ar = new AutoRegressiveModel(3);
+ar.Fit(vol20);
+var hw = new HoltWintersModel();
+hw.Fit(vol20);
+Console.WriteLine($"Volatility feature: last {vol20[^1]:F4}; AR(3) next 5: {string.Join(", ", ar.Forecast(5).Select(v => v.ToString("F4")))}");
+Console.WriteLine($"Holt-Winters next 5: {string.Join(", ", hw.Forecast(5).Select(v => v.ToString("F4")))}");

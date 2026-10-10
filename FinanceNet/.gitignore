@@ -1,0 +1,14 @@
+bin/
+obj/
+artifacts/
+target/
+*.user
+.vs/
+.idea/
+TestResults/
+BenchmarkDotNet.Artifacts/
+*.swp
+testkey.txt
+*.local.json
+output/
+notebooks/output/

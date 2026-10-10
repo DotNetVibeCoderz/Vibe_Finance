@@ -1,0 +1,20 @@
+Name: Finance.Net
+
+Deskripsi: Complete Finance Library for .NET
+
+Features
+---
+Desain dan Fitur bisa lihat di file @solution-design.md
+
+---
+Notes:
+- Dibangun dengan .NET 10 dan Rust
+- Optimasi kode dengan best practice, best performance dan efisiensi memory
+- Dokumentasi yang lengkap, jelas, mudah dengan dua Bahasa (English dan Bahasa Indonesia)
+- Tambahkan screenshot-nya ke readme dan docs
+- Tambahkan info pada dokumentasi dan aplikasi: Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+- PLAN.md untuk roadmap pengembangan, dan Progress.md untuk tracking development
+- aplikasi-aplikasi pendukung dan sample apps dibuat UI UX-nya yang keren dan professional dibantu dengan skill 'frontend-design' 
+- untuk publish nuget api key ada di 'C:\Users\mifma\Documents\CodeSandbox\PackageCredentials.txt'
+- nuget-nya buatkan icon yang keren
+- ujicoba dengan LLM real bisa dengan api key di 'C:\Users\mifma\Documents\CodeSandbox\testkey.txt' atau hugging face token di 'C:\Users\mifma\Documents\CodeSandbox\HFToken.txt'

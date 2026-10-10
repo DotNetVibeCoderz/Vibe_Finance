@@ -1,0 +1,159 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 03 · Portfolio Optimization
+
+**English.** Modern portfolio theory chooses weights by trading expected return against risk. `Finance.Portfolio` covers the PyPortfolioOpt toolbox: return and risk estimators, mean-variance optimisation (minimum volatility, maximum Sharpe, efficient frontier), Black-Litterman, risk parity, Hierarchical Risk Parity (HRP), CVaR optimisation and discrete allocation into whole shares.
+
+**Bahasa Indonesia.** Teori portofolio modern memilih bobot dengan menimbang imbal hasil yang diharapkan terhadap risiko. `Finance.Portfolio` mencakup perangkat PyPortfolioOpt: estimator imbal hasil dan risiko, optimisasi mean-variance (volatilitas minimum, Sharpe maksimum, efficient frontier), Black-Litterman, risk parity, Hierarchical Risk Parity (HRP), optimisasi CVaR, dan alokasi diskret ke jumlah saham bulat.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.Math, 0.1.0"
+#r "nuget: Gravicode.Finance.Portfolio, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core.Market;
+using Finance.Mathematics;
+using Finance.Portfolio;
+using Finance.Visualization;
+
+#!markdown
+
+## Data and estimators / Data dan estimator
+
+**EN.** Six synthetic assets with a realistic correlation structure (equities move together, bonds and gold diversify). Expected returns are annualised historical means; the covariance matrix uses Ledoit-Wolf shrinkage, which is far more stable than the raw sample covariance when history is short.
+
+**ID.** Enam aset sintetis dengan struktur korelasi yang realistis (saham bergerak bersama, obligasi dan emas memberi diversifikasi). Imbal hasil yang diharapkan adalah rata-rata historis tahunan; matriks kovarians memakai shrinkage Ledoit-Wolf yang jauh lebih stabil daripada kovarians sampel ketika data historis pendek.
+
+#!csharp
+
+string[] assets = { "US Equity", "Tech", "EM Equity", "Bonds", "Gold", "REITs" };
+double[] drift = { 0.08, 0.13, 0.10, 0.035, 0.05, 0.07 };
+double[] vol = { 0.16, 0.28, 0.24, 0.06, 0.15, 0.20 };
+double[,] corr =
+{
+    { 1.00, 0.80, 0.70, -0.20, 0.05, 0.60 },
+    { 0.80, 1.00, 0.65, -0.25, 0.00, 0.50 },
+    { 0.70, 0.65, 1.00, -0.10, 0.15, 0.55 },
+    { -0.20, -0.25, -0.10, 1.00, 0.30, 0.10 },
+    { 0.05, 0.00, 0.15, 0.30, 1.00, 0.10 },
+    { 0.60, 0.50, 0.55, 0.10, 0.10, 1.00 },
+};
+var prices = Matrix.FromRows(SyntheticMarket.CorrelatedPrices(1260, drift, vol, corr, seed: 2024));
+var returns = ExpectedReturns.ReturnsFromPrices(prices);
+var mu = ExpectedReturns.MeanHistorical(returns);
+var sigma = RiskModels.LedoitWolf(returns);
+for (int i = 0; i < assets.Length; i++)
+    Console.WriteLine($"{assets[i],-10} expected {mu[i],7:P2}  vol {Math.Sqrt(sigma[i, i]),7:P2}");
+display(HTML(Charts.Heatmap(Stats.CovarianceToCorrelation(sigma), assets, new ChartOptions { Title = "Correlation (Ledoit-Wolf)", Height = 420, Width = 620 })));
+
+#!markdown
+
+## Mean-variance / Mean-variance
+
+**EN.** The minimum-volatility portfolio ignores expected returns; the maximum-Sharpe (tangency) portfolio maximises return per unit of risk. Bounds here are long-only with a 40% cap per asset.
+
+**ID.** Portofolio volatilitas minimum mengabaikan imbal hasil yang diharapkan; portofolio Sharpe maksimum (tangency) memaksimalkan imbal hasil per unit risiko. Batasan di sini hanya posisi beli (long-only) dengan batas 40% per aset.
+
+#!csharp
+
+var mvo = new MeanVarianceOptimizer(mu, sigma, lowerBound: 0, upperBound: 0.40, assets: assets);
+var minVol = mvo.MinVolatility();
+var maxSharpe = mvo.MaxSharpe(riskFreeRate: 0.02);
+Console.WriteLine("Min volatility: " + minVol.Clean());
+Console.WriteLine("  " + mvo.Performance(minVol, 0.02));
+Console.WriteLine("Max Sharpe:     " + maxSharpe.Clean());
+Console.WriteLine("  " + mvo.Performance(maxSharpe, 0.02));
+
+var frontier = mvo.EfficientFrontier(40, 0.02);
+var curve = new ScatterSeries("Efficient frontier", frontier.Select(p => p.Volatility).ToArray(), frontier.Select(p => p.ExpectedReturn).ToArray()) { Connect = true, Color = "#FBBF24" };
+var singles = new ScatterSeries("Assets", assets.Select((_, i) => Math.Sqrt(sigma[i, i])).ToArray(), mu) { Labels = assets, Color = "#38BDF8" };
+var pMin = mvo.Performance(minVol, 0.02);
+var pMax = mvo.Performance(maxSharpe, 0.02);
+display(HTML(Charts.Scatter(new[] { curve, singles },
+    new ChartOptions { Title = "Efficient frontier", XLabel = "Volatility", YLabel = "Expected return", XFormat = "P0", YFormat = "P0", Height = 440 },
+    new[] { new ChartMarker(pMin.Volatility, pMin.ExpectedReturn, "Min vol"), new ChartMarker(pMax.Volatility, pMax.ExpectedReturn, "Max Sharpe", "#2DD4BF") })));
+
+#!markdown
+
+## Black-Litterman
+
+**EN.** Black-Litterman starts from the returns implied by market capitalisations (what the market "believes"), then blends in investor views weighted by confidence. Here: Tech outperforms US Equity by 3%, and Gold returns 7%.
+
+**ID.** Black-Litterman berangkat dari imbal hasil yang tersirat dari kapitalisasi pasar (apa yang "diyakini" pasar), lalu memadukan pandangan investor yang ditimbang berdasarkan tingkat keyakinan. Di sini: Tech mengungguli US Equity sebesar 3%, dan Gold menghasilkan 7%.
+
+#!csharp
+
+double[] caps = { 45, 20, 10, 15, 5, 5 };
+var prior = BlackLittermanModel.MarketImpliedPriorReturns(caps, sigma, riskAversion: 2.5, riskFreeRate: 0.02);
+var views = new BlackLittermanViews(assets)
+    .Relative("Tech", "US Equity", 0.03, confidence: 0.6)
+    .Absolute("Gold", 0.07, confidence: 0.4);
+var bl = BlackLittermanModel.Create(sigma, prior, views);
+for (int i = 0; i < assets.Length; i++)
+    Console.WriteLine($"{assets[i],-10} prior {prior[i],7:P2} → posterior {bl.Posterior[i],7:P2}");
+Console.WriteLine("BL weights: " + bl.Weights(2.5).Clean());
+
+#!markdown
+
+## Risk-based portfolios / Portofolio berbasis risiko
+
+**EN.** Risk parity equalises each asset's contribution to total volatility. HRP (López de Prado) clusters assets by correlation and splits risk down the dendrogram, avoiding the matrix inversion that makes mean-variance fragile.
+
+**ID.** Risk parity menyamakan kontribusi setiap aset terhadap volatilitas total. HRP (López de Prado) mengelompokkan aset berdasarkan korelasi lalu membagi risiko menyusuri dendrogram, sehingga menghindari inversi matriks yang membuat mean-variance rapuh.
+
+#!csharp
+
+var erc = RiskParity.EqualRiskContribution(sigma, assets);
+var rc = RiskParity.RiskContributions(erc.ToArray(), sigma);
+Console.WriteLine("Risk parity:  " + erc.Clean());
+Console.WriteLine("  risk contributions: " + string.Join(", ", rc.Select(x => (x / rc.Sum()).ToString("P1"))));
+
+var hrp = HierarchicalRiskParity.Optimize(sigma, assets);
+Console.WriteLine("HRP:          " + hrp.Weights.Clean());
+Console.WriteLine("  cluster order: " + string.Join(" | ", hrp.Order.Select(i => assets[i])));
+
+var inverseVol = HeuristicPortfolios.InverseVolatility(sigma, assets);
+var maxDiv = HeuristicPortfolios.MaxDiversification(sigma, assets: assets);
+Console.WriteLine($"Inverse vol diversification ratio {HeuristicPortfolios.DiversificationRatio(inverseVol.ToArray(), sigma):F3}; max-diversification {HeuristicPortfolios.DiversificationRatio(maxDiv.ToArray(), sigma):F3}");
+
+display(HTML(Charts.Bar(assets, hrp.Weights.ToArray(), new ChartOptions { Title = "HRP weights", YFormat = "P0", Height = 300 })));
+
+#!markdown
+
+## CVaR optimisation / Optimisasi CVaR
+
+**EN.** Variance treats upside and downside alike. CVaR optimisation (Rockafellar-Uryasev) minimises the average loss in the worst 5% of scenarios, using the historical returns directly as scenarios.
+
+**ID.** Varians memperlakukan kenaikan dan penurunan secara sama. Optimisasi CVaR (Rockafellar-Uryasev) meminimalkan rata-rata kerugian pada 5% skenario terburuk, dengan memakai imbal hasil historis langsung sebagai skenario.
+
+#!csharp
+
+var cvarOpt = new CVaROptimizer(returns, beta: 0.95, upperBound: 0.40, assets: assets);
+var minCvar = cvarOpt.MinCVaR();
+Console.WriteLine("Min CVaR:     " + minCvar.Clean());
+Console.WriteLine($"  daily CVaR95 {cvarOpt.CVaR(minCvar.ToArray()):P3} vs max-Sharpe {cvarOpt.CVaR(maxSharpe.ToArray()):P3}");
+
+#!markdown
+
+## Discrete allocation / Alokasi diskret
+
+**EN.** Weights must become whole shares. The largest-remainder method gets as close as possible to the target weights for a given budget.
+
+**ID.** Bobot harus diubah menjadi jumlah saham bulat. Metode largest-remainder mendekati bobot target sedekat mungkin untuk anggaran tertentu.
+
+#!csharp
+
+double[] lastPrices = Enumerable.Range(0, assets.Length).Select(i => prices[prices.Rows - 1, i]).ToArray();
+var alloc = DiscreteAllocation.LargestRemainder(maxSharpe, lastPrices, budget: 50_000);
+foreach (var (asset, shares) in alloc.Shares.Where(s => s.Value > 0))
+    Console.WriteLine($"{asset,-10} {shares,5} shares");
+Console.WriteLine($"Leftover cash: {alloc.Leftover:C2}");

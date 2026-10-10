@@ -1,0 +1,125 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 10 · Alternative Data
+
+**English.** Alternative data is information outside prices and filings: ESG ratings, supply-chain relationships, weather, web and social activity. `Finance.AlternativeData` provides portfolio ESG analytics (including weighted-average carbon intensity, WACI), a supply-chain graph with PageRank and shock contagion, and weather analytics with heating/cooling degree days and an Open-Meteo client.
+
+**Bahasa Indonesia.** Data alternatif adalah informasi di luar harga dan laporan keuangan: peringkat ESG, hubungan rantai pasok, cuaca, aktivitas web dan media sosial. `Finance.AlternativeData` menyediakan analitik ESG portofolio (termasuk intensitas karbon rata-rata tertimbang, WACI), graf rantai pasok dengan PageRank dan simulasi penularan guncangan, serta analitik cuaca dengan heating/cooling degree days dan klien Open-Meteo.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.AlternativeData, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core;
+using Finance.AlternativeData.Esg;
+using Finance.AlternativeData.SupplyChain;
+using Finance.AlternativeData.Weather;
+using Finance.Visualization;
+
+#!markdown
+
+## ESG analytics / Analitik ESG
+
+**EN.** Pillar scores (0–100) are weighted by portfolio weights; WACI uses carbon intensity in tCO₂e per $M revenue. Flags highlight severe controversies or weak governance; a tilt shifts weight towards better-rated names.
+
+**ID.** Skor pilar (0–100) ditimbang dengan bobot portofolio; WACI memakai intensitas karbon dalam tCO₂e per juta dolar pendapatan. Penanda menyorot kontroversi berat atau tata kelola yang lemah; tilt memindahkan bobot ke emiten berperingkat lebih baik.
+
+#!csharp
+
+var scores = new Dictionary<string, EsgScore>
+{
+    ["AAPL"] = new("AAPL", 72, 64, 70, Controversy: 2, CarbonIntensity: 8, Sector: "Tech"),
+    ["XOM"] = new("XOM", 28, 45, 60, Controversy: 4, CarbonIntensity: 420, Sector: "Energy"),
+    ["MSFT"] = new("MSFT", 80, 70, 78, Controversy: 1, CarbonIntensity: 15, Sector: "Tech"),
+    ["TLKM"] = new("TLKM", 55, 62, 48, Controversy: 2, CarbonIntensity: 60, Sector: "Telecom"),
+    ["BBCA"] = new("BBCA", 60, 66, 74, Controversy: 0, CarbonIntensity: 5, Sector: "Banks"),
+};
+var weights = new Dictionary<string, double> { ["AAPL"] = 0.25, ["XOM"] = 0.20, ["MSFT"] = 0.25, ["TLKM"] = 0.15, ["BBCA"] = 0.15 };
+var esg = EsgAnalytics.Portfolio(weights, scores);
+Console.WriteLine($"Portfolio ESG: E {esg.Environmental:F1}  S {esg.Social:F1}  G {esg.Governance:F1}  total {esg.Total:F1}  WACI {esg.Waci:F1}  coverage {esg.Coverage:P0}");
+foreach (var f in EsgAnalytics.Flags(weights, scores)) Console.WriteLine($"  flag {f.Symbol}: {f.Reason} (weight {f.Weight:P0})");
+var tilted = EsgAnalytics.Tilt(weights, scores, strength: 0.5);
+var tiltedEsg = EsgAnalytics.Portfolio(tilted, scores);
+Console.WriteLine($"After ESG tilt: total {tiltedEsg.Total:F1}, WACI {tiltedEsg.Waci:F1}; weights {string.Join(", ", tilted.Select(kv => $"{kv.Key} {kv.Value:P0}"))}");
+
+#!markdown
+
+## Supply-chain graph / Graf rantai pasok
+
+**EN.** Edges point from supplier to customer with a dependency weight (share of the customer's inputs). PageRank finds systemically important suppliers; a shock simulation propagates a supplier outage downstream.
+
+**ID.** Sisi graf mengarah dari pemasok ke pelanggan dengan bobot ketergantungan (porsi input pelanggan). PageRank menemukan pemasok yang penting secara sistemik; simulasi guncangan menyebarkan gangguan pemasok ke hilir.
+
+#!csharp
+
+var graph = new SupplyChainGraph()
+    .AddLink("ASML", "TSMC", 0.6).AddLink("TSMC", "AAPL", 0.5).AddLink("TSMC", "NVDA", 0.8).AddLink("TSMC", "AMD", 0.7)
+    .AddLink("NVDA", "MSFT", 0.3).AddLink("NVDA", "META", 0.35).AddLink("Samsung", "AAPL", 0.2).AddLink("AMD", "MSFT", 0.1)
+    .AddLink("Foxconn", "AAPL", 0.4);
+foreach (var (company, rank) in graph.PageRank().OrderByDescending(kv => kv.Value).Take(5))
+    Console.WriteLine($"  PageRank {company,-8} {rank:F3}");
+var shock = graph.SimulateShock("TSMC", severity: 1.0, transmission: 0.8);
+Console.WriteLine($"TSMC outage after {shock.Rounds} rounds: " + string.Join(", ", shock.Ranked.Take(6).Select(kv => $"{kv.Key} {kv.Value:P0}")));
+
+#!markdown
+
+## Weather analytics / Analitik cuaca
+
+**EN.** Degree days drive natural-gas and power demand: HDD = max(0, 18 °C − T), CDD = max(0, T − 18 °C). We correlate a synthetic HDD series with gas returns at several lags (gas reacts to yesterday's cold).
+
+**ID.** Degree days menggerakkan permintaan gas alam dan listrik: HDD = max(0, 18 °C − T), CDD = max(0, T − 18 °C). Kita mengorelasikan deret HDD sintetis dengan imbal hasil gas pada beberapa lag (gas bereaksi terhadap dinginnya hari kemarin).
+
+#!csharp
+
+var rng = new FastRandom(12);
+var obs = new List<WeatherObservation>();
+var gas = new List<(DateOnly, double)>();
+var day0 = new DateOnly(2024, 1, 1);
+for (int d = 0; d < 365; d++)
+{
+    double temp = 12 - 10 * Math.Cos(2 * Math.PI * (d - 15) / 365) + 3 * rng.NextGaussian();
+    var date = day0.AddDays(d);
+    obs.Add(new WeatherObservation(date, temp, temp - 4, temp + 4, Math.Max(0, rng.NextGaussian())));
+}
+var hdd = WeatherAnalytics.DegreeDaySeries(obs);
+double meanHdd = hdd.Values.Average();
+foreach (var o in obs.Skip(1))
+    gas.Add((o.Date, 0.003 * (hdd[o.Date.AddDays(-1)] - meanHdd) + 0.015 * rng.NextGaussian()));
+var (hddTotal, cddTotal) = WeatherAnalytics.Accumulate(obs);
+Console.WriteLine($"Year totals: HDD {hddTotal:F0}, CDD {cddTotal:F0}");
+foreach (var (lag, c, n) in WeatherAnalytics.Correlate(hdd, gas, maxLag: 3))
+    Console.WriteLine($"  lag {lag}: corr(HDD, gas return) = {c:+0.000;-0.000} (n={n})");
+display(HTML(Charts.Line(new[] { new LineSeries("Mean temperature °C", obs.Select(o => o.TempMean).ToArray()) { Color = "#FB923C" } },
+    new ChartOptions { Title = "Synthetic temperature", Height = 260 }, obs.Select(o => o.Date.ToDateTime(TimeOnly.MinValue)).ToList())));
+
+#!markdown
+
+## Optional: real weather / Opsional: cuaca nyata
+
+**EN.** Open-Meteo is free and needs no key. Jakarta: −6.2, 106.8.
+
+**ID.** Open-Meteo gratis dan tidak membutuhkan kunci. Jakarta: −6.2, 106.8.
+
+#!csharp
+
+// optional-live
+try
+{
+    var client = new OpenMeteoClient();
+    var jakarta = await client.GetHistoryAsync(-6.2, 106.8, new DateOnly(2025, 1, 1), new DateOnly(2025, 3, 31));
+    var (h, c) = WeatherAnalytics.Accumulate(jakarta);
+    Console.WriteLine($"Jakarta Q1 2025: {jakarta.Length} days, mean {jakarta.Average(o => o.TempMean):F1} °C, CDD {c:F0}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Open-Meteo unavailable: {ex.Message}");
+}

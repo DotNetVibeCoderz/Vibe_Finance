@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Finance.TimeSeries</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Finance.Core/Finance.Core.csproj" />
+    <ProjectReference Include="../Finance.Math/Finance.Math.csproj" />
+    <ProjectReference Include="../Finance.DataFrame/Finance.DataFrame.csproj" />
+  </ItemGroup>
+
+</Project>

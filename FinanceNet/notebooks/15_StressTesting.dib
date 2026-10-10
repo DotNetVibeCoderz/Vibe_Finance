@@ -1,0 +1,112 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 15 · Stress Testing & Scenario Analysis
+
+**English.** VaR describes ordinary bad days; stress tests ask what happens in extraordinary ones. `Finance.Risk` applies named historical scenarios (GFC 2008, COVID 2020, the 2022 rates shock, …) and custom factor shocks to positions with sensitivities, finds the shock multiplier that produces a target loss (reverse stress test) and simulates thousands of correlated futures. `Finance.GPU` runs large Monte Carlo VaR on the GPU.
+
+**Bahasa Indonesia.** VaR menggambarkan hari-hari buruk yang biasa; uji tekanan (stress test) menanyakan apa yang terjadi pada hari-hari luar biasa. `Finance.Risk` menerapkan skenario historis bernama (GFC 2008, COVID 2020, guncangan suku bunga 2022, …) dan guncangan faktor kustom pada posisi beserta sensitivitasnya, mencari pengali guncangan yang menghasilkan kerugian target (reverse stress test), dan mensimulasikan ribuan masa depan yang berkorelasi. `Finance.GPU` menjalankan Monte Carlo VaR berskala besar di GPU.
+
+> Note: the historical scenarios use rounded, stylised shock sizes for illustration — they are not regulatory scenarios.
+> Catatan: skenario historis memakai besaran guncangan yang dibulatkan untuk ilustrasi — bukan skenario regulasi.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Math, 0.1.0"
+#r "nuget: Gravicode.Finance.Risk, 0.1.0"
+#r "nuget: Gravicode.Finance.GPU, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Mathematics;
+using Finance.Risk;
+using Finance.GPU;
+using Finance.Visualization;
+
+var positions = new List<StressPosition>
+{
+    StressPosition.Equity("Global equities", 4_000_000, beta: 1.0),
+    StressPosition.Equity("Tech growth", 1_500_000, beta: 1.4),
+    StressPosition.Bond("Govt bonds 7y", 2_500_000, modifiedDuration: 6.5, convexity: 50),
+    StressPosition.Bond("IG credit 5y", 1_500_000, modifiedDuration: 4.6, spreadDuration: 4.5, convexity: 25),
+    StressPosition.Single("Gold", 500_000, RiskFactors.Commodity, 0.5),
+};
+double total = positions.Sum(p => p.MarketValue);
+Console.WriteLine($"Portfolio value {total:N0}");
+
+#!markdown
+
+## Historical scenarios / Skenario historis
+
+**EN.** Each scenario is a set of factor shocks (equity return, rate change, spread change, commodity return, …). Equity P&L = value × beta × shock; bond P&L = −duration × Δy + ½ convexity × Δy².
+
+**ID.** Setiap skenario adalah sekumpulan guncangan faktor (imbal hasil saham, perubahan suku bunga, perubahan spread, imbal hasil komoditas, …). P&L saham = nilai × beta × guncangan; P&L obligasi = −durasi × Δy + ½ konveksitas × Δy².
+
+#!csharp
+
+foreach (var s in StressScenario.Historical)
+    Console.WriteLine($"{s.Name,-26} {string.Join(", ", s.Shocks.Select(kv => $"{kv.Key} {kv.Value:+0.###;-0.###}"))}");
+var results = StressTester.RunAll(positions);
+Console.WriteLine();
+foreach (var r in results)
+    Console.WriteLine($"{r.Scenario,-26} P&L {r.TotalPnl,12:N0}  ({r.ReturnOnPortfolio:P1})   worst: {r.PositionPnl.OrderBy(kv => kv.Value).First().Key}");
+display(HTML(Charts.Bar(results.Select(r => r.Scenario).ToList(), results.Select(r => r.TotalPnl / 1000).ToList(),
+    new ChartOptions { Title = "Stress P&L ($ thousands)", YFormat = "N0", Height = 320 }, color: "#F43F5E")));
+
+#!markdown
+
+## Custom and reverse stress / Stress kustom dan reverse stress
+
+**EN.** A stagflation scenario of our own, then the reverse question: how many times the GFC shock would it take to lose 25% of the portfolio?
+
+**ID.** Skenario stagflasi buatan sendiri, lalu pertanyaan sebaliknya: berapa kali lipat guncangan GFC yang diperlukan untuk kehilangan 25% portofolio?
+
+#!csharp
+
+var stagflation = StressScenario.Custom("Stagflation", (RiskFactors.Equity, -0.20), (RiskFactors.Rates, 0.02), (RiskFactors.Credit, 0.015), (RiskFactors.Commodity, 0.25));
+var sr = StressTester.Run(positions, stagflation);
+Console.WriteLine($"{sr.Scenario}: {sr.TotalPnl:N0} ({sr.ReturnOnPortfolio:P1})");
+foreach (var (name, pnl) in sr.PositionPnl) Console.WriteLine($"  {name,-16} {pnl,12:N0}");
+var gfc = StressScenario.Historical.First(s => s.Name.Contains("2008"));
+double k = StressTester.ReverseStressMultiplier(positions, gfc, targetLoss: 0.25 * total);
+Console.WriteLine($"Reverse stress: {k:F2}× the {gfc.Name} shocks loses 25% of the portfolio");
+
+#!markdown
+
+## Monte Carlo futures / Masa depan Monte Carlo
+
+**EN.** 10,000 correlated GBM paths over one year give a fan of outcomes and the probability of ending below today's value. The same portfolio's 10-day 99% VaR is then computed with one million scenarios on the GPU (or the CPU accelerator).
+
+**ID.** 10.000 jalur GBM yang berkorelasi selama satu tahun menghasilkan kipas kemungkinan hasil dan probabilitas berakhir di bawah nilai hari ini. VaR 99% 10 hari untuk portofolio yang sama lalu dihitung dengan satu juta skenario di GPU (atau akselerator CPU).
+
+#!csharp
+
+double[] w = positions.Select(p => p.MarketValue / total).ToArray();
+double[] mu = { 0.07, 0.10, 0.035, 0.045, 0.04 };
+double[] vol = { 0.16, 0.26, 0.06, 0.07, 0.15 };
+double[,] rho =
+{
+    { 1.0, 0.85, -0.3, 0.3, 0.1 },
+    { 0.85, 1.0, -0.3, 0.25, 0.05 },
+    { -0.3, -0.3, 1.0, 0.6, 0.2 },
+    { 0.3, 0.25, 0.6, 1.0, 0.15 },
+    { 0.1, 0.05, 0.2, 0.15, 1.0 },
+};
+var cov = new Matrix(5, 5);
+for (int i = 0; i < 5; i++) for (int j = 0; j < 5; j++) cov[i, j] = rho[i, j] * vol[i] * vol[j];
+var sim = PortfolioSimulation.Run(total, w, mu, cov, years: 1, stepsPerYear: 52, paths: 10_000, seed: 3, samplePaths: 0);
+Console.WriteLine($"Median in 1y {sim.Percentile(0.5):N0}; 5th percentile {sim.Percentile(0.05):N0}; P(loss) {sim.ProbabilityOfLoss:P1}");
+display(HTML(Charts.Line(sim.Fan.Select((f, k) => new LineSeries($"P{sim.FanPercentiles[k] * 100:0}", f)).ToList(),
+    new ChartOptions { Title = "One-year fan chart", YFormat = "N0", Height = 320 }, x: sim.Times.Select(t => t * 52).ToArray())));
+
+using (var gpu = GpuContext.CreateBest())
+{
+    var engine = new GpuRiskEngine(gpu);
+    var v = engine.MonteCarloVaR(w, mu, cov, horizonYears: 10.0 / 252, scenarios: 1_000_000, confidence: 0.99);
+    Console.WriteLine($"{v.Device}: 10-day VaR99 {v.VaR * total:N0}, CVaR99 {v.CVaR * total:N0} from {v.Scenarios:N0} scenarios in {v.Elapsed.TotalMilliseconds:F0} ms");
+}

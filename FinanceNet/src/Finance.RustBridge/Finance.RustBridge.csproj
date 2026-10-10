@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Finance.RustBridge</RootNamespace>
+    <!-- The Rust crate this project wraps. `-p:SkipRustBuild=true` uses whatever binary is already built. -->
+    <FinanceNativeDir>$(MSBuildThisFileDirectory)../../native/finance-native/</FinanceNativeDir>
+    <FinanceNativeOut>$(FinanceNativeDir)target/release/</FinanceNativeOut>
+    <SkipRustBuild Condition="'$(SkipRustBuild)' == ''">false</SkipRustBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Finance.Core/Finance.Core.csproj" />
+    <ProjectReference Include="../Finance.Math/Finance.Math.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Finance.Native.Tests" />
+  </ItemGroup>
+
+  <!--
+    Build the Rust library when cargo is on PATH. A missing toolchain is not an error: the
+    managed fallback in ManagedKernels covers every native entry point.
+  -->
+  <Target Name="BuildFinanceNative" BeforeTargets="BeforeBuild" Condition="'$(SkipRustBuild)' != 'true'">
+    <Exec Command="cargo --version" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_CargoExitCode" />
+    </Exec>
+    <Exec Condition="'$(_CargoExitCode)' == '0'" Command="cargo build --release" WorkingDirectory="$(FinanceNativeDir)" />
+    <Message Condition="'$(_CargoExitCode)' != '0'" Importance="high" Text="Finance.RustBridge: cargo not found - building without the Rust accelerator (managed fallback only)." />
+  </Target>
+
+  <!--
+    Ship whatever native binaries exist: next to the assembly for local runs and project
+    references, and under runtimes/{rid}/native in the NuGet package.
+  -->
+  <Target Name="IncludeFinanceNative" BeforeTargets="AssignTargetPaths;_GetPackageFiles">
+    <ItemGroup>
+      <_FinanceNative Include="$(FinanceNativeOut)finance_native.dll" Rid="win-x64" Condition="Exists('$(FinanceNativeOut)finance_native.dll')" />
+      <_FinanceNative Include="$(FinanceNativeOut)libfinance_native.so" Rid="linux-x64" Condition="Exists('$(FinanceNativeOut)libfinance_native.so')" />
+      <_FinanceNative Include="$(FinanceNativeOut)libfinance_native.dylib" Rid="osx-arm64" Condition="Exists('$(FinanceNativeOut)libfinance_native.dylib')" />
+      <None Include="@(_FinanceNative)" Link="%(_FinanceNative.Filename)%(_FinanceNative.Extension)" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/%(_FinanceNative.Rid)/native/" />
+    </ItemGroup>
+  </Target>
+
+</Project>

@@ -1,0 +1,129 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 01 · Market Data
+
+**English.** Every quant workflow starts with clean prices. This notebook shows the Finance.Net data layer: OHLCV bars (`Finance.Core`), columnar frames and aligned multi-asset panels (`Finance.DataFrame`), and the provider abstraction (`Finance.MarketData`) that hides Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, CSV files and a reproducible synthetic market behind one interface.
+
+**Bahasa Indonesia.** Setiap alur kerja kuantitatif dimulai dari data harga yang bersih. Notebook ini memperlihatkan lapisan data Finance.Net: bar OHLCV (`Finance.Core`), frame kolom dan panel multi-aset yang sudah diselaraskan (`Finance.DataFrame`), serta abstraksi penyedia data (`Finance.MarketData`) yang menyatukan Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, file CSV, dan pasar sintetis yang dapat direproduksi dalam satu antarmuka.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.DataFrame, 0.1.0"
+#r "nuget: Gravicode.Finance.MarketData, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core.Market;
+using Finance.DataFrame;
+using Finance.MarketData;
+using Finance.MarketData.Providers;
+using Finance.MarketData.Economic;
+using Finance.Visualization;
+
+#!markdown
+
+## Bars and frames / Bar dan frame
+
+**EN.** A `Bar` is a value type (time, open, high, low, close, volume), so an array of bars is one contiguous block of memory. `OhlcvFrame` stores the same data column by column, which is what indicators and statistics want to read. The synthetic market follows geometric Brownian motion and is seeded, so the numbers below are identical on every machine.
+
+**ID.** `Bar` adalah tipe nilai (waktu, open, high, low, close, volume), sehingga array bar menempati satu blok memori yang berurutan. `OhlcvFrame` menyimpan data yang sama per kolom, bentuk yang paling efisien untuk indikator dan statistik. Pasar sintetis mengikuti gerak Brown geometris dengan seed tetap, sehingga angka di bawah ini sama di setiap mesin.
+
+#!csharp
+
+var bars = SyntheticMarket.GeometricBrownianBars(500, startPrice: 150, annualDrift: 0.10, annualVolatility: 0.28, seed: 7);
+var frame = OhlcvFrame.FromBars(bars, "DEMO");
+Console.WriteLine($"{frame.Symbol}: {frame.Count} daily bars from {frame.Time[0]:yyyy-MM-dd} to {frame.Time[^1]:yyyy-MM-dd}");
+Console.WriteLine($"Last bar: {frame[frame.Count - 1]}");
+
+var weekly = frame.Resample(ResamplePeriod.Week);
+var monthly = frame.Resample(ResamplePeriod.Month);
+Console.WriteLine($"Resampled: {weekly.Count} weekly bars, {monthly.Count} monthly bars");
+
+#!csharp
+
+display(HTML(Charts.Candlestick(frame.Tail(120).ToBars(), new ChartOptions { Title = "DEMO — last 120 sessions", Height = 420 })));
+
+#!markdown
+
+## CSV round trip / Simpan dan baca CSV
+
+**EN.** `OhlcvFrame` reads and writes CSV with invariant culture and understands Yahoo-style headers, so files exported from most tools load directly.
+
+**ID.** `OhlcvFrame` membaca dan menulis CSV dengan kultur invarian dan mengenali header gaya Yahoo, sehingga file dari kebanyakan aplikasi dapat langsung dimuat.
+
+#!csharp
+
+string csv = frame.Tail(5).ToCsv();
+Console.WriteLine(csv);
+var parsed = OhlcvFrame.ParseCsv(csv, "DEMO");
+Console.WriteLine($"Parsed back {parsed.Count} rows; last close {parsed.Close[^1]:F4}");
+
+#!markdown
+
+## Multi-asset panels / Panel multi-aset
+
+**EN.** Portfolio work needs prices on a common calendar. `PricePanel.Align` performs an inner join on timestamps and returns a dates × symbols matrix ready for return and covariance calculations.
+
+**ID.** Analisis portofolio membutuhkan harga pada kalender yang sama. `PricePanel.Align` melakukan inner join berdasarkan waktu dan menghasilkan matriks tanggal × simbol yang siap dipakai untuk menghitung imbal hasil dan kovarians.
+
+#!csharp
+
+var a = OhlcvFrame.Synthetic(300, "AAA", seed: 1);
+var b = OhlcvFrame.Synthetic(280, "BBB", seed: 2, drift: 0.04, vol: 0.18);
+var panel = PricePanel.Align(new[] { ("AAA", a.Time, a.Close), ("BBB", b.Time, b.Close) });
+var returns = panel.ToReturnsMatrix();
+Console.WriteLine($"Aligned panel: {panel.Dates.Length} dates × {panel.ColumnCount} symbols; returns matrix {returns.Rows}×{returns.Columns}");
+
+#!markdown
+
+## Providers / Penyedia data
+
+**EN.** All providers implement `IMarketDataProvider`. The synthetic provider is deterministic per symbol, which makes it ideal for tests and teaching. Swap in `YahooFinanceProvider`, `BinanceProvider`, `AlphaVantageProvider(key)` or `PolygonProvider(key)` without touching the rest of the code.
+
+**ID.** Semua penyedia data mengimplementasikan `IMarketDataProvider`. Penyedia sintetis bersifat deterministik per simbol sehingga cocok untuk pengujian dan pembelajaran. Ganti dengan `YahooFinanceProvider`, `BinanceProvider`, `AlphaVantageProvider(key)` atau `PolygonProvider(key)` tanpa mengubah kode lainnya.
+
+#!csharp
+
+IMarketDataProvider provider = new SyntheticProvider();
+var msft = await provider.GetBarsAsync("MSFT", BarInterval.Day1, new DateTime(2024, 1, 1), new DateTime(2024, 6, 30));
+var quote = await provider.GetQuoteAsync("MSFT");
+Console.WriteLine($"{provider.Name}: {msft.Length} bars for MSFT, last {quote.Last:F2}");
+
+var calendar = new SampleEconomicCalendar();
+var events = await calendar.GetEventsAsync(DateTime.Today.AddDays(-30), DateTime.Today.AddDays(30));
+foreach (var e in events.Take(6))
+    Console.WriteLine($"{e.Time:yyyy-MM-dd} {e.Country,-3} {e.Name,-32} {e.Importance}");
+
+#!markdown
+
+## Optional: live data / Opsional: data langsung
+
+**EN.** The next cell calls Yahoo Finance and Binance over the internet. It is wrapped in `try/catch`, so the notebook still runs offline.
+
+**ID.** Sel berikut memanggil Yahoo Finance dan Binance melalui internet. Sel ini dibungkus `try/catch`, sehingga notebook tetap berjalan tanpa koneksi.
+
+#!csharp
+
+// optional-live
+try
+{
+    var yahoo = new YahooFinanceProvider();
+    var aapl = await yahoo.GetRecentBarsAsync("AAPL", BarInterval.Day1, TimeSpan.FromDays(90));
+    Console.WriteLine($"Yahoo AAPL: {aapl.Length} bars, last close {aapl[^1].Close:F2}");
+
+    var binance = new BinanceProvider();
+    var btc = await binance.GetQuoteAsync("BTCUSDT");
+    var book = await binance.GetOrderBookAsync("BTCUSDT", 10);
+    Console.WriteLine($"Binance BTCUSDT: last {btc.Last:F2}, spread {book.Spread:F2}, imbalance {book.Imbalance():+0.00;-0.00}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Live data unavailable: {ex.Message}");
+}

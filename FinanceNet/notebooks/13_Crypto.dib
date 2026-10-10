@@ -1,0 +1,108 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"name":"csharp"},{"aliases":[],"languageName":"Markdown","name":"markdown"}]}}
+
+#!markdown
+
+# 13 · Crypto
+
+**English.** Crypto trades 24/7, so annualisation uses 365 days (or 8,760 hours); volatility is several times that of equities and tails are heavier. This notebook loads Binance data (with a synthetic fallback), measures crypto risk, and backtests a momentum-rotation strategy across coins with fractional quantities and taker fees.
+
+**Bahasa Indonesia.** Kripto diperdagangkan 24/7, sehingga anualisasi memakai 365 hari (atau 8.760 jam); volatilitasnya beberapa kali lipat saham dan ekornya lebih tebal. Notebook ini memuat data Binance (dengan cadangan data sintetis), mengukur risiko kripto, dan melakukan backtest strategi rotasi momentum antar koin dengan kuantitas pecahan dan biaya taker.
+
+> Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
+
+#!csharp
+
+#i "nuget: ../artifacts/packages"
+#r "nuget: Gravicode.Finance.Core, 0.1.0"
+#r "nuget: Gravicode.Finance.MarketData, 0.1.0"
+#r "nuget: Gravicode.Finance.Risk, 0.1.0"
+#r "nuget: Gravicode.Finance.Backtesting, 0.1.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.1.0"
+
+using Finance.Core.Market;
+using Finance.MarketData;
+using Finance.MarketData.Providers;
+using Finance.Risk;
+using Finance.Backtesting;
+using Finance.Backtesting.Strategies;
+using Finance.Visualization;
+
+string[] coins = { "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT" };
+var data = new Dictionary<string, Bar[]>();
+IMarketDataProvider provider = new SyntheticProvider();
+foreach (var c in coins)
+    data[c] = await provider.GetBarsAsync(c, BarInterval.Day1, new DateTime(2022, 1, 1), new DateTime(2025, 1, 1));
+Console.WriteLine($"Loaded {coins.Length} coins from {provider.Name}: {data[coins[0]].Length} daily bars each");
+
+#!markdown
+
+## Optional: real Binance data / Opsional: data Binance nyata
+
+**EN.** Replaces the synthetic history with the last 1,000 daily candles from Binance's public market-data API (no key needed).
+
+**ID.** Mengganti riwayat sintetis dengan 1.000 candle harian terakhir dari API data pasar publik Binance (tanpa kunci).
+
+#!csharp
+
+// optional-live
+try
+{
+    var binance = new BinanceProvider();
+    var live = new Dictionary<string, Bar[]>();
+    foreach (var c in coins) live[c] = await binance.GetRecentBarsAsync(c, BarInterval.Day1, TimeSpan.FromDays(1000));
+    data = live;
+    Console.WriteLine($"Binance: {string.Join(", ", coins.Select(c => $"{c} {data[c].Length} bars, last {data[c][^1].Close:G6}"))}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Binance unavailable, keeping synthetic data: {ex.Message}");
+}
+
+#!markdown
+
+## Crypto risk / Risiko kripto
+
+**EN.** Annualised with 365 periods. Note how far the Student-t and Cornish-Fisher VaRs sit above the normal VaR: crypto tails are fat.
+
+**ID.** Dianualisasi dengan 365 periode. Perhatikan seberapa jauh VaR Student-t dan Cornish-Fisher berada di atas VaR normal: ekor distribusi kripto tebal.
+
+#!csharp
+
+foreach (var c in coins)
+{
+    var close = data[c].Select(b => b.Close).ToArray();
+    var r = close.Skip(1).Select((v, i) => v / close[i] - 1).ToArray();
+    var report = PerformanceReport.Create(r, periodsPerYear: 365);
+    var normal = ValueAtRisk.ParametricNormal(r, 0.99);
+    var cf = ValueAtRisk.CornishFisher(r, 0.99);
+    var hist = ValueAtRisk.Historical(r, 0.99);
+    Console.WriteLine($"{c,-8} vol {report.AnnualVolatility,6:P0}  Sharpe {report.SharpeRatio,5:F2}  maxDD {report.MaxDrawdown,6:P0}  VaR99 normal {normal.ValueAtRisk,6:P1}  CF {cf.ValueAtRisk,6:P1}  hist {hist.ValueAtRisk,6:P1}");
+}
+
+#!markdown
+
+## Momentum rotation backtest / Backtest rotasi momentum
+
+**EN.** Every 7 days, hold the 2 coins with the best 30-day momentum, but only if their momentum is positive (absolute filter); otherwise hold cash. Fractional quantities, 10 bp taker fee, 5 bp slippage.
+
+**ID.** Setiap 7 hari, pegang 2 koin dengan momentum 30 hari terbaik, tetapi hanya bila momentumnya positif (filter absolut); jika tidak, pegang kas. Kuantitas pecahan, biaya taker 10 bp, slippage 5 bp.
+
+#!csharp
+
+var settings = new BacktestSettings
+{
+    InitialCash = 10_000,
+    FractionalQuantities = true,
+    Commission = CommissionModels.Percentage(0.001),
+    Slippage = SlippageModels.FixedBps(5),
+    PeriodsPerYear = 365,
+};
+var engine = new BacktestEngine(settings);
+var rotation = engine.Run(new MomentumRotationStrategy(lookback: 30, topN: 2, rebalanceEvery: 7, absoluteFilter: true), data);
+var hold = engine.Run(new BuyAndHoldStrategy("BTCUSDT"), new Dictionary<string, Bar[]> { ["BTCUSDT"] = data["BTCUSDT"] });
+Console.WriteLine(rotation);
+Console.WriteLine(hold);
+display(HTML(Charts.Line(new[] { new LineSeries("Momentum rotation", rotation.Equity) { Color = "#2DD4BF" }, new LineSeries("BTC buy & hold", hold.Equity) { Color = "#FBBF24" } },
+    new ChartOptions { Title = "Crypto momentum rotation vs BTC", YFormat = "N0", Height = 340 }, rotation.Times)));

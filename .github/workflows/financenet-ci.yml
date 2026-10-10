@@ -1,0 +1,120 @@
+# Finance.Net CI: builds the Rust kernels for win-x64 / linux-x64 / osx-arm64, runs the full .NET test
+# suite on Windows and Linux, and packs all Gravicode.Finance.* packages with every native binary.
+#
+# Lives at the repository root because GitHub only reads `.github/workflows/` there; the project itself is
+# the `FinanceNet/` subfolder of the Vibe_Finance monorepo, hence the path filters and working directory.
+name: FinanceNet CI
+
+on:
+  push:
+    branches: [main]
+    paths: ["FinanceNet/**", ".github/workflows/financenet-*.yml"]
+  pull_request:
+    paths: ["FinanceNet/**", ".github/workflows/financenet-*.yml"]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        description: Package version (empty = Directory.Build.props VersionPrefix)
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: FinanceNet
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  CARGO_TERM_COLOR: always
+
+jobs:
+  native:
+    name: Rust ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64,   os: windows-latest, file: finance_native.dll }
+          - { rid: linux-x64, os: ubuntu-latest,  file: libfinance_native.so }
+          - { rid: osx-arm64, os: macos-latest,   file: libfinance_native.dylib }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo test
+        working-directory: FinanceNet/native/finance-native
+        run: cargo test --release
+      - name: cargo build
+        working-directory: FinanceNet/native/finance-native
+        run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: FinanceNet/native/finance-native/target/release/${{ matrix.file }}
+          if-no-files-found: error
+
+  test:
+    name: .NET tests (${{ matrix.os }})
+    needs: native
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: FinanceNet/native/finance-native/target/release
+      - name: Build
+        run: dotnet build FinanceNet.slnx -c Release -p:SkipRustBuild=true
+      - name: Test
+        run: dotnet test FinanceNet.slnx -c Release --no-build
+      - name: Notebooks compile and run
+        if: runner.os == 'Linux'
+        run: dotnet run -c Release --no-build --project tools/NotebookCheck
+
+  pack:
+    name: Pack
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: FinanceNet/native/finance-native/target/release
+      - name: Pack every library
+        shell: bash
+        run: |
+          version_arg=""
+          if [ -n "${{ inputs.version }}" ]; then version_arg="-p:Version=${{ inputs.version }}"; fi
+          for p in src/*/*.csproj; do
+            dotnet pack "$p" -c Release -p:SkipRustBuild=true -p:ContinuousIntegrationBuild=true $version_arg -o artifacts/packages
+          done
+          ls -la artifacts/packages
+      - name: Check native binaries are packed
+        shell: bash
+        run: |
+          pkg=$(ls artifacts/packages/Gravicode.Finance.RustBridge.*.nupkg)
+          for f in runtimes/win-x64/native/finance_native.dll runtimes/linux-x64/native/libfinance_native.so runtimes/osx-arm64/native/libfinance_native.dylib; do
+            unzip -l "$pkg" | grep -q "$f" || { echo "::error::$f missing from $pkg"; exit 1; }
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: financenet-packages
+          path: FinanceNet/artifacts/packages/*
+          if-no-files-found: error

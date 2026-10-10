@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Finance.MarketData/Finance.MarketData.csproj" />
+    <ProjectReference Include="../../src/Finance.AlternativeData/Finance.AlternativeData.csproj" />
+    <ProjectReference Include="../../src/Finance.Execution/Finance.Execution.csproj" />
+  </ItemGroup>
+
+</Project>

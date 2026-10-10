@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <!-- Roslyn scripting is only needed by this checker, so its version lives here rather than in Directory.Packages.props. -->
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Scripting" VersionOverride="4.14.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Finance.Core/Finance.Core.csproj" />
+    <ProjectReference Include="../../src/Finance.Math/Finance.Math.csproj" />
+    <ProjectReference Include="../../src/Finance.DataFrame/Finance.DataFrame.csproj" />
+    <ProjectReference Include="../../src/Finance.TimeSeries/Finance.TimeSeries.csproj" />
+    <ProjectReference Include="../../src/Finance.MarketData/Finance.MarketData.csproj" />
+    <ProjectReference Include="../../src/Finance.AlternativeData/Finance.AlternativeData.csproj" />
+    <ProjectReference Include="../../src/Finance.Pricing/Finance.Pricing.csproj" />
+    <ProjectReference Include="../../src/Finance.Risk/Finance.Risk.csproj" />
+    <ProjectReference Include="../../src/Finance.Portfolio/Finance.Portfolio.csproj" />
+    <ProjectReference Include="../../src/Finance.Backtesting/Finance.Backtesting.csproj" />
+    <ProjectReference Include="../../src/Finance.Execution/Finance.Execution.csproj" />
+    <ProjectReference Include="../../src/Finance.ML/Finance.ML.csproj" />
+    <ProjectReference Include="../../src/Finance.LLM/Finance.LLM.csproj" />
+    <ProjectReference Include="../../src/Finance.NewsAnalytics/Finance.NewsAnalytics.csproj" />
+    <ProjectReference Include="../../src/Finance.Visualization/Finance.Visualization.csproj" />
+    <ProjectReference Include="../../src/Finance.GPU/Finance.GPU.csproj" />
+    <ProjectReference Include="../../src/Finance.RustBridge/Finance.RustBridge.csproj" />
+  </ItemGroup>
+
+</Project>
