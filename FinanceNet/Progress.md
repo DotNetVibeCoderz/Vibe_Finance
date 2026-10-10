@@ -15,7 +15,7 @@ Last updated / Terakhir diperbarui: **2026-10-10** · Version **0.1.0**
 | Quickstart console sample | ✅ nine-section tour + HTML tearsheet |
 | 15 .NET Interactive notebooks | ✅ all execute under tools/NotebookCheck (offline and --live) |
 | Bilingual docs (EN/ID) | ✅ 22 pages per language in docs/en, docs/id |
-| NuGet packaging | ✅ metadata, icon, README, symbols; **not yet published** |
+| NuGet packaging | ✅ `Gravicode.Finance.*` 0.1.0 published to nuget.org (tag `financenet-v0.1.0`, CI run 38068541863) |
 
 ## Tests per project / Tes per proyek
 
@@ -69,7 +69,7 @@ integrated GPU wins for Monte Carlo pricing (2.8×) and Monte Carlo VaR (2.4×).
 
 ## Open items / Pekerjaan terbuka
 
-- [ ] Publish `Gravicode.Finance.*` 0.1.0 to nuget.org (awaiting owner confirmation)
+- [x] Publish `Gravicode.Finance.*` 0.1.0 to nuget.org (2026-10-10)
 - [ ] Indicator catalogue to 200+
 - [ ] Local FinBERT through HF.Net (no hosted credits needed)
 - [ ] Linux/macOS native binaries for the Rust crate
