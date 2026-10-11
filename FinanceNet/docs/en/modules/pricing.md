@@ -145,6 +145,66 @@ double pd5 = hazard.DefaultProbability(5);
 double quick = CreditDefaultSwap.CreditTriangleHazard(0.012, 0.4);   // λ ≈ s / (1 − R)
 ```
 
+## Short-rate models: Hull-White and G2++ (v0.2)
+
+```csharp
+var hw = GaussianShortRateModel.HullWhite(curve, meanReversion: 0.05, volatility: 0.01);
+var g2 = GaussianShortRateModel.G2(curve, a: 0.5, sigma: 0.012, b: 0.05, eta: 0.008, rho: -0.6);
+
+double zb   = hw.ZeroBond(t: 2, T: 7, state: new[] { 0.004 });      // P(t,T) given the factor state
+double zbo  = hw.ZeroBondOption(OptionType.Call, expiry: 2, maturity: 7, strike: 0.83);
+double cap  = g2.Cap(start: 1, maturity: 6, strike: 0.037, frequency: 4);
+
+var swpn = new Swaption(Expiry: 1, Tenor: 5, Strike: 0.04, Payer: false);
+double euro = hw.JamshidianSwaption(swpn);                          // one-factor closed form
+MonteCarloResult berm = g2.BermudanSwaption(swpn, paths: 20_000);   // Longstaff-Schwartz LSMC
+```
+
+Both are one `GaussianShortRateModel` (Brigo-Mercurio Gn++): r = Σxᵢ + φ(t), fitted exactly to the
+initial curve. The simulation is **exact**: it steps the factors and ∫r jointly from their Gaussian
+covariance, so discount factors carry no time-step bias. Bermudan exercise values are the model's exact swap
+values; continuation values are regressed on the swap value, its square and the factors.
+
+## Local volatility (v0.2)
+
+```csharp
+var lv = new LocalVolatility(surface, spot: 100, rate: 0.03, dividendYield: 0.01);
+double sigmaLoc = lv.Volatility(t: 0.75, s: 95);                    // Dupire, Gatheral total-variance form
+MonteCarloResult put = lv.PriceEuropean(OptionType.Put, strike: 85, expiry: 1);
+```
+
+Under the local-vol diffusion every European reprices to its input implied vol; the tests check that by
+Monte Carlo against Black-Scholes on a skewed smile. `Floored` counts evaluations where an arbitrageable
+surface made the Dupire ratio non-positive.
+
+## Inflation and cross-currency swaps (v0.2)
+
+```csharp
+var cpi = InflationCurve.FromZeroCouponSwaps(baseIndex: 310.2, new[] { 1.0, 2, 5, 10 }, new[] { 0.031, 0.028, 0.025, 0.024 });
+var zcis = new ZeroCouponInflationSwap(10_000_000, FixedRate: 0.026, Maturity: 5);
+var yoy  = new YearOnYearInflationSwap(10_000_000, FixedRate: 0.025, Maturity: 10);
+double be = yoy.ParRate(discount, cpi);
+
+var xccy = new CrossCurrencySwap(
+    Domestic: new CrossCurrencyLeg(10_800_000, usdOis, usdSofr, Rate: 0),
+    Foreign:  new CrossCurrencyLeg(10_000_000, eurDiscountInUsdCollateral, eurEstr, Rate: 0),
+    Maturity: 5);
+double basis = xccy.ParForeignSpread(spotFx: 1.08);                 // implied cross-currency basis
+```
+
+## Credit: ISDA-style CDS (v0.2)
+
+```csharp
+var cds = new IsdaCds(Notional: 10_000_000, Maturity: 5, Coupon: IsdaCds.InvestmentGradeCoupon, Recovery: 0.4);
+double upfront = cds.UpfrontFromQuotedSpread(discount, quotedSpread: 0.0300);   // fraction of notional
+double quoted  = cds.QuotedSpreadFromUpfront(discount, upfront);
+double cs01    = cds.Cs01(discount, 0.0300);
+```
+
+The protection leg and accrual-on-default are integrated in closed form on every piece where hazard and
+forward are constant, as in the ISDA CDS Standard Model; standard coupons and upfront ↔ quoted-spread
+conversion go through a flat hazard curve.
+
 ## Structured products
 
 ```csharp
@@ -171,8 +231,14 @@ the term that prices the note at par.
   yields use street convention at the coupon frequency).
 - The cubic-zero curve bootstrap iterates over all pillars, because a spline is non-local: adding a
   pillar moves the earlier segments.
-- The CDS model is a standard hazard-rate model, not the full ISDA standard model (no IMM dates,
-  step-in conventions or CS01 rules).
+- `CreditDefaultSwap` is a plain hazard-rate model on a weekly grid. `IsdaCds` follows the ISDA Standard
+  Model's mathematics (exact integrals, flat forwards between curve nodes, standard coupons, upfront and
+  CS01) but uses year fractions instead of business-day-adjusted IMM dates, with no T+1 step-in or cash
+  settlement lag.
+- Year-on-year inflation swaps use forward index ratios without a convexity adjustment; inflation curves
+  have no seasonality or indexation lag. Cross-currency swaps have constant notionals (no MtM resets).
+- Bermudan LSMC prices are slightly low-biased (sub-optimal exercise from a regressed rule), as with any
+  Longstaff-Schwartz estimator.
 - Tests check against Hull, Haug and Fang-Oosterlee reference values, put-call parity, finite
   differences and Monte Carlo vs closed form.
 

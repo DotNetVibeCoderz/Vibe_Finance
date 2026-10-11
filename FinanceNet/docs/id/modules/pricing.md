@@ -147,6 +147,66 @@ double pd5 = hazard.DefaultProbability(5);
 double quick = CreditDefaultSwap.CreditTriangleHazard(0.012, 0.4);   // λ ≈ s / (1 − R)
 ```
 
+## Model short-rate: Hull-White dan G2++ (v0.2)
+
+```csharp
+var hw = GaussianShortRateModel.HullWhite(curve, meanReversion: 0.05, volatility: 0.01);
+var g2 = GaussianShortRateModel.G2(curve, a: 0.5, sigma: 0.012, b: 0.05, eta: 0.008, rho: -0.6);
+
+double zb   = hw.ZeroBond(t: 2, T: 7, state: new[] { 0.004 });      // P(t,T) pada state faktor tertentu
+double zbo  = hw.ZeroBondOption(OptionType.Call, expiry: 2, maturity: 7, strike: 0.83);
+double cap  = g2.Cap(start: 1, maturity: 6, strike: 0.037, frequency: 4);
+
+var swpn = new Swaption(Expiry: 1, Tenor: 5, Strike: 0.04, Payer: false);
+double euro = hw.JamshidianSwaption(swpn);                          // rumus tertutup satu faktor
+MonteCarloResult berm = g2.BermudanSwaption(swpn, paths: 20_000);   // LSMC Longstaff-Schwartz
+```
+
+Keduanya adalah satu `GaussianShortRateModel` (Gn++ Brigo-Mercurio): r = Σxᵢ + φ(t), dipasang tepat pada
+kurva awal. Simulasinya **eksak**: faktor dan ∫r dilangkahkan bersama dari kovarians Gaussian-nya, sehingga
+faktor diskonto bebas bias langkah waktu. Nilai exercise Bermudan adalah nilai swap eksak model; nilai
+lanjutan diregresikan pada nilai swap, kuadratnya, dan faktor.
+
+## Volatilitas lokal (v0.2)
+
+```csharp
+var lv = new LocalVolatility(surface, spot: 100, rate: 0.03, dividendYield: 0.01);
+double sigmaLoc = lv.Volatility(t: 0.75, s: 95);                    // Dupire, bentuk total-variance Gatheral
+MonteCarloResult put = lv.PriceEuropean(OptionType.Put, strike: 85, expiry: 1);
+```
+
+Di bawah difusi local-vol, setiap opsi Eropa kembali ke implied vol masukannya; tes memeriksanya dengan
+Monte Carlo terhadap Black-Scholes pada smile yang miring. `Floored` menghitung evaluasi saat permukaan yang
+mengandung arbitrase membuat rasio Dupire tidak positif.
+
+## Swap inflasi dan lintas mata uang (v0.2)
+
+```csharp
+var cpi = InflationCurve.FromZeroCouponSwaps(baseIndex: 310.2, new[] { 1.0, 2, 5, 10 }, new[] { 0.031, 0.028, 0.025, 0.024 });
+var zcis = new ZeroCouponInflationSwap(10_000_000, FixedRate: 0.026, Maturity: 5);
+var yoy  = new YearOnYearInflationSwap(10_000_000, FixedRate: 0.025, Maturity: 10);
+double be = yoy.ParRate(discount, cpi);
+
+var xccy = new CrossCurrencySwap(
+    Domestic: new CrossCurrencyLeg(10_800_000, usdOis, usdSofr, Rate: 0),
+    Foreign:  new CrossCurrencyLeg(10_000_000, eurDiscountInUsdCollateral, eurEstr, Rate: 0),
+    Maturity: 5);
+double basis = xccy.ParForeignSpread(spotFx: 1.08);                 // basis lintas mata uang tersirat
+```
+
+## Kredit: CDS gaya ISDA (v0.2)
+
+```csharp
+var cds = new IsdaCds(Notional: 10_000_000, Maturity: 5, Coupon: IsdaCds.InvestmentGradeCoupon, Recovery: 0.4);
+double upfront = cds.UpfrontFromQuotedSpread(discount, quotedSpread: 0.0300);   // fraksi notional
+double quoted  = cds.QuotedSpreadFromUpfront(discount, upfront);
+double cs01    = cds.Cs01(discount, 0.0300);
+```
+
+Leg proteksi dan accrual-on-default diintegrasikan dalam bentuk tertutup pada setiap potongan dengan hazard
+dan forward konstan, seperti pada ISDA CDS Standard Model; kupon standar dan konversi upfront ↔ quoted spread
+melalui kurva hazard datar.
+
 ## Produk terstruktur
 
 ```csharp
@@ -173,8 +233,14 @@ yang membuat produk bernilai par.
   obligasi memakai konvensi pasar sesuai frekuensi kupon).
 - Bootstrap kurva cubic-zero melakukan iterasi atas semua pilar, karena spline bersifat non-lokal:
   menambah pilar menggeser segmen sebelumnya.
-- Model CDS adalah model hazard rate standar, bukan ISDA Standard Model lengkap (tanpa tanggal IMM,
-  konvensi step-in, atau aturan CS01).
+- `CreditDefaultSwap` adalah model hazard rate biasa pada grid mingguan. `IsdaCds` mengikuti matematika ISDA
+  Standard Model (integral eksak, forward datar antar node kurva, kupon standar, upfront dan CS01) tetapi
+  memakai fraksi tahun alih-alih tanggal IMM yang disesuaikan hari kerja, tanpa step-in T+1 atau jeda
+  settlement tunai.
+- Swap inflasi year-on-year memakai rasio indeks forward tanpa penyesuaian konveksitas; kurva inflasi tidak
+  memodelkan musiman atau lag indeksasi. Swap lintas mata uang memakai notional konstan (tanpa reset MtM).
+- Harga Bermudan LSMC sedikit bias ke bawah (exercise sub-optimal dari aturan hasil regresi), seperti
+  estimator Longstaff-Schwartz pada umumnya.
 - Pengujian membandingkan dengan nilai acuan Hull, Haug, dan Fang-Oosterlee, put-call parity, beda
   hingga (finite difference), serta Monte Carlo vs rumus tertutup.
 

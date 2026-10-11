@@ -15,8 +15,8 @@
 #!csharp
 
 #i "nuget: ../artifacts/packages"
-#r "nuget: Gravicode.Finance.NewsAnalytics, 0.3.0"
-#r "nuget: Gravicode.Finance.LLM, 0.3.0"
+#r "nuget: Gravicode.Finance.NewsAnalytics, 0.4.0"
+#r "nuget: Gravicode.Finance.LLM, 0.4.0"
 
 using Finance.NewsAnalytics;
 using Finance.LLM;

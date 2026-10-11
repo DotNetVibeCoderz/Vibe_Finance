@@ -2,14 +2,14 @@
 
 > Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
 
-Last updated / Terakhir diperbarui: **2026-10-11** · Version **0.3.0**
+Last updated / Terakhir diperbarui: **2026-10-11** · Version **0.4.0**
 
 ## Summary / Ringkasan
 
 | Item | Status |
 |---|---|
 | Libraries (18 packages) | ✅ all build, 0 warnings, 0 errors (`Finance.LLM.Local` added after 0.1.0) |
-| Unit tests | ✅ **383 passed, 0 failed, 4 skipped** (skipped = live tests gated by env vars) |
+| Unit tests | ✅ **407 passed, 0 failed, 4 skipped** (skipped = live tests gated by env vars) |
 | Rust crate `finance_native` | ✅ `cargo test` 15/15, loaded by Finance.RustBridge with managed fallback |
 | Finance.Net Gallery (Avalonia) | ✅ 11 modules + overview, screenshots in `docs/screenshots` |
 | Quickstart console sample | ✅ nine-section tour + HTML tearsheet |
@@ -23,7 +23,7 @@ Last updated / Terakhir diperbarui: **2026-10-11** · Version **0.3.0**
 |---|---|---|
 | Finance.Foundation.Tests | Core, Math | 50 / 50 |
 | Finance.Analytics.Tests | DataFrame, TimeSeries, Visualization | 88 / 88 |
-| Finance.Quant.Tests | Pricing, Risk | 70 / 70 |
+| Finance.Quant.Tests | Pricing, Risk | 94 / 94 |
 | Finance.Portfolio.Tests | Portfolio, Backtesting | 50 / 50 |
 | Finance.Data.Tests | MarketData, AlternativeData, Execution | 53 / 53 (+1 live, skipped) |
 | Finance.AI.Tests | ML, LLM, LLM.Local, NewsAnalytics | 38 / 38 (+3 live, skipped) |
@@ -44,7 +44,7 @@ PhraseBank-style positive/negative/neutral sentences classified correctly, ~100 
 | Finance.TimeSeries | ✅ | Returns, rolling O(n), streaming indicators; **catalogue 248 entries (188 indicators + 60 patterns)**, incl. Hilbert/Ehlers cycles, rolling volume profile and TPO |
 | Finance.MarketData | ✅ | Yahoo, Alpha Vantage, Polygon, Binance, Coinbase, CSV, synthetic, cache, rate limiter, WebSocket, economic, fundamentals. Coinbase not verified live (TLS failure from this network) |
 | Finance.AlternativeData | ✅ | Social (Reddit), ESG, supply chain, weather. Reddit unauthenticated access is usually blocked |
-| Finance.Pricing | ✅ | BSM+Greeks, IV, Black-76, Bachelier, trees, MC, Heston, SABR, surfaces, curves, NSS, bonds, FRN, IRS, swaptions, forwards, CDS, structured, autocallable |
+| Finance.Pricing | ✅ | BSM+Greeks, IV, Black-76, Bachelier, trees, MC, Heston, SABR, surfaces, **Dupire local vol**, curves, NSS, bonds, FRN, IRS, swaptions, **Hull-White/G2++ with Bermudan LSMC**, **inflation (ZC/YoY) and cross-currency swaps**, forwards, CDS + **ISDA-style CDS (upfront, CS01)**, structured, autocallable |
 | Finance.Risk | ✅ | VaR/ES (7 methods incl. filtered HS and EVT/GPD), liquidity-adjusted and historical incremental/component VaR, FRTB-SA delta (GIRR), attribution, Kupiec/Christoffersen, stress (stylised scenarios), MC simulation, performance report, GARCH, EWMA |
 | Finance.Portfolio | ✅ | MVO, Black-Litterman, risk parity, HRP, CVaR, heuristics, discrete allocation, rebalancing. CVaR untested above ~30 assets; bounded MVO is slow-ish |
 | Finance.Backtesting | ✅ | Event-driven engine, costs, vectorised, sweeps, walk-forward, portfolio backtester, 5 strategies. Walk-forward OOS windows start flat |

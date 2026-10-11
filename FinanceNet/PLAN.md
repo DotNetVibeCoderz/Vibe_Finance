@@ -27,8 +27,10 @@ Spesifikasi acuan adalah [solution-design.md](solution-design.md). Status harian
 
 - ✅ **Indicators**: 248-entry catalogue — Hilbert-transform family and Ehlers filters, 60
   candlestick patterns, rolling volume profile and market-profile TPO (done 2026-10-11).
-- **Pricing**: local volatility (Dupire) surfaces, Hull-White / G2++ short-rate models, Bermudan
-  swaptions via LSMC, inflation and cross-currency swaps, ISDA-standard CDS (full CS01 conventions).
+- ✅ **Pricing**: Dupire local volatility with an MC pricer, Hull-White / G2++ (exact simulation,
+  closed-form bonds/caps, Jamshidian), Bermudan swaptions via LSMC, zero-coupon and YoY inflation swaps,
+  cross-currency swaps with basis, ISDA-style CDS with upfront and CS01 (done 2026-10-11). Open: IMM
+  date schedules for CDS, YoY convexity, MtM-resetting cross-currency swaps.
 - ✅ **Risk**: filtered historical simulation (1-day and bootstrapped multi-period), EVT
   (peaks-over-threshold) VaR/ES, liquidity-adjusted VaR, historical incremental/component VaR for
   what-if trades, FRTB-SA delta aggregation with GIRR parameters (done 2026-10-11). Open: FRTB
