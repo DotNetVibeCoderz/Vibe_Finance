@@ -120,4 +120,15 @@ public sealed class Position
         }
         RealizedPnl -= fill.Commission;
     }
+
+    /// <summary>
+    /// Applies a stock split of <paramref name="ratio"/> new shares per old share (2 for a 2-for-1, 0.1 for a 1-for-10
+    /// reverse split): quantity is multiplied and the average price divided, so cost basis and value are unchanged.
+    /// </summary>
+    public void ApplySplit(double ratio)
+    {
+        if (!(ratio > 0)) throw new ArgumentOutOfRangeException(nameof(ratio), "Split ratio must be positive.");
+        Quantity *= ratio;
+        AveragePrice /= ratio;
+    }
 }

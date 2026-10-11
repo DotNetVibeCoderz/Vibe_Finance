@@ -137,7 +137,49 @@ BacktestResult rebal = PortfolioBacktester.Run(universe,       // IReadOnlyDicti
 BacktestResult ew = PortfolioBacktester.Run(universe, PortfolioBacktester.EqualWeight());
 ```
 
+## Aksi korporasi dan survivorship (v0.2)
+
+```csharp
+var settings = new BacktestSettings
+{
+    CorporateActions = new[]
+    {
+        CorporateAction.Split("NVDA", new DateTime(2024, 6, 10), 10),          // 10-untuk-1
+        CorporateAction.Dividend("KO", new DateTime(2024, 6, 14), 0.485),
+    },
+    Delistings = new[] { new Delisting("SIVB", new DateTime(2023, 3, 28), DelistingReturn: -1.0) },
+    Universe = pointInTimeUniverse,          // strategi memanggil context.IsInUniverse(symbol)
+};
+Bar[] research = CorporateActionAdjuster.Adjust(rawBars, actions);   // seri total return yang disesuaikan mundur
+```
+
+Berikan bar **mentah** ke mesin bersama daftar aksinya: split menskalakan posisi dan biayanya serta
+membatalkan order terbuka simbol itu; dividen menambah (atau, untuk posisi short, mengurangi) kas pada ex-date;
+kepemilikan yang delisting ditutup pada harga terakhir × (1 + delisting return). Gunakan bar yang disesuaikan
+untuk riset dan indikator. `PointInTimeUniverse` mencatat siapa yang layak investasi kapan, sehingga backtest
+memilih dari semesta sebagaimana adanya saat itu, bukan dari para penyintas hari ini.
+
+## Replay order book (v0.2)
+
+```csharp
+var replay = new OrderBookReplay("BTCUSDT", new LognormalLatency(TimeSpan.FromMilliseconds(3), sigma: 0.5))
+{
+    TakerFeeBps = 1.0, MakerFeeBps = -0.2, CancelsAdvanceQueue = true,
+};
+BookReplayResult r = replay.Run(new MyMarketMaker(), recordedEvents);   // snapshot, update level, trade
+```
+
+`BookStrategy` melihat setiap event L2 dan mengirim order market atau limit lewat `BookReplayContext`. Replay
+memodelkan latensi (order dan pembatalan bertindak pada book saat tiba), order marketable yang menelusuri
+kedalaman terlihat, serta posisi antrean FIFO: order yang menunggu baru terisi setelah ukuran di depannya
+tertransaksi, atau saat harga diperdagangkan menembus harganya. `CancelsAdvanceQueue` memilih apakah ukuran
+yang ditarik di level kita dihitung di depan kita (optimis) atau di belakang (pesimis).
+
 ## Catatan dan batasan
+
+- Replay order book mengasumsikan order kita tidak mengubah event berikutnya (tanpa dampak pasar yang
+  menetap), asumsi umum replay; wajar selama ukuran kita kecil dibanding kedalaman yang terlihat.
+- Saat split, order terbuka simbol tersebut dibatalkan alih-alih disesuaikan, karena order bersifat immutable.
 
 - Statistik harian memakai `BacktestSettings.PeriodsPerYear` (bawaan 252); sesuaikan untuk bar
   intraday.

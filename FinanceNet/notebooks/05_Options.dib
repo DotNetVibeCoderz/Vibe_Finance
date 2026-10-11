@@ -15,9 +15,9 @@
 #!csharp
 
 #i "nuget: ../artifacts/packages"
-#r "nuget: Gravicode.Finance.Pricing, 0.5.0"
-#r "nuget: Gravicode.Finance.GPU, 0.5.0"
-#r "nuget: Gravicode.Finance.Visualization, 0.5.0"
+#r "nuget: Gravicode.Finance.Pricing, 0.6.0"
+#r "nuget: Gravicode.Finance.GPU, 0.6.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.6.0"
 
 using Finance.Pricing.Options;
 using Finance.GPU;

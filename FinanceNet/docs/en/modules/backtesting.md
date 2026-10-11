@@ -135,7 +135,49 @@ BacktestResult rebal = PortfolioBacktester.Run(universe,       // IReadOnlyDicti
 BacktestResult ew = PortfolioBacktester.Run(universe, PortfolioBacktester.EqualWeight());
 ```
 
+## Corporate actions and survivorship (v0.2)
+
+```csharp
+var settings = new BacktestSettings
+{
+    CorporateActions = new[]
+    {
+        CorporateAction.Split("NVDA", new DateTime(2024, 6, 10), 10),          // 10-for-1
+        CorporateAction.Dividend("KO", new DateTime(2024, 6, 14), 0.485),
+    },
+    Delistings = new[] { new Delisting("SIVB", new DateTime(2023, 3, 28), DelistingReturn: -1.0) },
+    Universe = pointInTimeUniverse,          // strategies call context.IsInUniverse(symbol)
+};
+Bar[] research = CorporateActionAdjuster.Adjust(rawBars, actions);   // back-adjusted total-return series
+```
+
+Feed the engine **raw** bars together with the actions: splits rescale the position and its cost, and cancel
+the symbol's open orders; dividends credit (or debit, for shorts) cash on the ex-date; delisted holdings are
+closed at the last price × (1 + delisting return). Use adjusted bars for research and indicators.
+`PointInTimeUniverse` records who was investable when, so a backtest can select from the universe as it
+was rather than from today's survivors.
+
+## Order-book replay (v0.2)
+
+```csharp
+var replay = new OrderBookReplay("BTCUSDT", new LognormalLatency(TimeSpan.FromMilliseconds(3), sigma: 0.5))
+{
+    TakerFeeBps = 1.0, MakerFeeBps = -0.2, CancelsAdvanceQueue = true,
+};
+BookReplayResult r = replay.Run(new MyMarketMaker(), recordedEvents);   // snapshots, level updates, trades
+```
+
+A `BookStrategy` sees every L2 event and submits market or limit orders through `BookReplayContext`. The
+replay models latency (orders and cancels act on the book as it is when they arrive), marketable orders
+walking the visible depth, and FIFO queue position: a resting order fills only after the displayed size ahead
+of it has traded, or when the market trades through its price. `CancelsAdvanceQueue` chooses whether pulled
+size at our level counts as ahead of us (optimistic) or behind (pessimistic).
+
 ## Notes and limitations
+
+- Order-book replay assumes our orders do not change later events (no persistent market impact), the usual
+  replay assumption; it is reasonable while our size is small relative to displayed depth.
+- On a split, open orders for the symbol are cancelled rather than adjusted, because orders are immutable.
 
 - Daily statistics use `BacktestSettings.PeriodsPerYear` (252 by default); set it for intraday bars.
 - `BacktestSettings.StartTradingAt` feeds earlier bars for indicator warm-up without trading — the

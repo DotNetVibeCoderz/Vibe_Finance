@@ -37,8 +37,10 @@ Spesifikasi acuan adalah [solution-design.md](solution-design.md). Status harian
   vega/curvature/DRC.
 - ✅ **Portfolio**: interior-point QP, cost-aware rebalancing, turnover / sector / factor-exposure
   constraints, Michaud resampled frontier (done 2026-10-12).
-- **Backtesting**: tick-level / order-book replay engine, latency models, corporate actions and
-  survivorship-bias-free universes.
+- ✅ **Backtesting**: order-book replay with latency models and FIFO queue position, corporate actions
+  (splits, dividends, adjuster), delistings and point-in-time universes (done 2026-10-12).
+
+v0.2 is complete.
 
 ## v0.3 — Connectivity / Konektivitas
 

@@ -198,12 +198,60 @@ public sealed class StrategyContext
 
     // ---- Engine plumbing --------------------------------------------------------------------------------
 
+    /// <summary>Whether <paramref name="symbol"/> is in the point-in-time universe now (true when no universe is set).</summary>
+    public bool IsInUniverse(string symbol) => _settings.Universe?.IsMember(symbol, Time) ?? true;
+
+    private readonly HashSet<CorporateAction> _appliedActions = new();
+    private readonly HashSet<Delisting> _appliedDelistings = new();
+
+    /// <summary>Applies splits, dividends and delistings whose dates fall in (previous, now].</summary>
+    private void ApplyCorporateEvents(DateTime previous, DateTime now)
+    {
+        if (_settings.CorporateActions is { } actions)
+            foreach (var a in actions.Where(a => a.ExDate > previous && a.ExDate <= now && !_appliedActions.Contains(a)).OrderBy(a => a.ExDate))
+            {
+                _appliedActions.Add(a);
+                if (!_positions.TryGetValue(a.Symbol, out var p) || p.IsFlat) continue;
+                if (a.Kind == CorporateActionKind.Split)
+                {
+                    p.ApplySplit(a.Value);
+                    if (_lastBar.TryGetValue(a.Symbol, out var lb))
+                        _lastBar[a.Symbol] = new Bar(lb.Time, lb.Open / a.Value, lb.High / a.Value, lb.Low / a.Value, lb.Close / a.Value, lb.Volume * a.Value);
+                    foreach (var o in _pending.Concat(_closeQueue).Where(o => o.Symbol == a.Symbol && o.IsActive)) o.Status = OrderStatus.Cancelled;
+                    Log($"Split {a.Value}:1 on {a.Symbol}: position now {p.Quantity}, open orders cancelled.");
+                }
+                else
+                {
+                    double amount = p.Quantity * a.Value;
+                    Cash += amount;
+                    Log($"Dividend {a.Value} on {a.Symbol}: {(amount >= 0 ? "received" : "paid")} {Math.Abs(amount):F2}.");
+                }
+            }
+
+        if (_settings.Delistings is { } delistings)
+            foreach (var d in delistings.Where(d => d.Date <= now && !_appliedDelistings.Contains(d)))
+            {
+                _appliedDelistings.Add(d);
+                foreach (var o in _pending.Concat(_closeQueue).Where(o => o.Symbol == d.Symbol && o.IsActive)) o.Status = OrderStatus.Cancelled;
+                if (!_positions.TryGetValue(d.Symbol, out var p) || p.IsFlat || !_lastBar.TryGetValue(d.Symbol, out var last)) continue;
+                double price = last.Close * (1 + d.DelistingReturn);
+                var side = p.Quantity > 0 ? Side.Sell : Side.Buy;
+                var fill = new Fill(-1, d.Symbol, side, Math.Abs(p.Quantity), price, d.Date);
+                Cash -= fill.SignedQuantity * price;
+                _trips.Record(fill, p.Quantity);
+                p.Apply(fill);
+                _fills.Add(fill);
+                Log($"Delisted {d.Symbol}: closed {fill.Quantity} at {price:F4} (delisting return {d.DelistingReturn:P1}).");
+            }
+    }
+
     internal IReadOnlyList<Fill> Fills => _fills;
     internal IReadOnlyList<Order> AllOrders => _orders;
     internal IReadOnlyList<RoundTrip> RoundTrips => _trips.Completed;
 
     internal void Advance(DateTime time, Dictionary<string, Bar> bars)
     {
+        ApplyCorporateEvents(Time, time);
         Time = time;
         BarIndex++;
         foreach (var (s, b) in bars)

@@ -15,10 +15,10 @@
 #!csharp
 
 #i "nuget: ../artifacts/packages"
-#r "nuget: Gravicode.Finance.Core, 0.5.0"
-#r "nuget: Gravicode.Finance.Math, 0.5.0"
-#r "nuget: Gravicode.Finance.ML, 0.5.0"
-#r "nuget: Gravicode.Finance.Visualization, 0.5.0"
+#r "nuget: Gravicode.Finance.Core, 0.6.0"
+#r "nuget: Gravicode.Finance.Math, 0.6.0"
+#r "nuget: Gravicode.Finance.ML, 0.6.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.6.0"
 
 using Finance.Core;
 using Finance.Mathematics;

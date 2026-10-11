@@ -14,7 +14,7 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <VersionPrefix>0.5.0</VersionPrefix>
+    <VersionPrefix>0.6.0</VersionPrefix>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">

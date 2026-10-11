@@ -10,7 +10,7 @@ public static class FinanceInfo
     public const string Product = "Finance.Net";
 
     /// <summary>Library version.</summary>
-    public const string Version = "0.5.0";
+    public const string Version = "0.6.0";
 
     /// <summary>Attribution (English).</summary>
     public const string CreditEnglish = "Made by Gravicode Studios, led by Kang Fadhil";

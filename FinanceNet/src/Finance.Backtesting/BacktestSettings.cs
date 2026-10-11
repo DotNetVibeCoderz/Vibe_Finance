@@ -43,6 +43,19 @@ public sealed record BacktestSettings
     /// equity is recorded. Used by walk-forward analysis.
     /// </summary>
     public DateTime? StartTradingAt { get; init; }
+
+    /// <summary>
+    /// Splits and cash dividends applied to held positions on their ex-dates: a split rescales quantity and cost
+    /// (and cancels the symbol's open orders), a dividend credits (or, for shorts, debits) cash. Use with raw,
+    /// unadjusted bars.
+    /// </summary>
+    public IReadOnlyList<CorporateAction>? CorporateActions { get; init; }
+
+    /// <summary>Delistings: holdings are closed at the last price × (1 + delisting return) on the delisting date.</summary>
+    public IReadOnlyList<Delisting>? Delistings { get; init; }
+
+    /// <summary>Point-in-time universe exposed to strategies through <see cref="StrategyContext.IsInUniverse"/>.</summary>
+    public PointInTimeUniverse? Universe { get; init; }
 }
 
 /// <summary>Computes the commission of a fill.</summary>
