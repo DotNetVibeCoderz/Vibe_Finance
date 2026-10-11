@@ -50,7 +50,7 @@ HF.Net, ~440 MB download). The Gallery's AI page also reads
 - `docs/en`, `docs/id` — parallel bilingual docs; screenshots in `docs/screenshots`.
 
 Central package versions live in `Directory.Packages.props`. Foundation packages come from nuget.org:
-Gravicode.Science.GraviNum/GraviFrame/GraviLearn 1.1.0, Gravicode.RLNet 0.1.0, Gravicode.HFNet.* 0.8.1 (source: `C:\experiment\VibeCoding\Vibe_ML\HF.Net` — fix HF.Net issues there).
+Gravicode.Science.GraviNum/GraviFrame/GraviLearn 1.1.0, Gravicode.RLNet 0.1.0, Gravicode.HFNet.* 0.9.0 (source: `C:\experiment\VibeCoding\Vibe_ML\HF.Net` — fix HF.Net issues there).
 
 ## Things that will bite you
 

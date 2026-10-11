@@ -59,19 +59,5 @@
     <NoWarn>$(NoWarn);xUnit1051</NoWarn>
   </PropertyGroup>
 
-  <!--
-    HF.Net 0.8.1 (used by Finance.LLM.Local, and so by anything referencing it) depends on SixLabors.ImageSharp
-    3.1.12. Its five advisories (TIFF CCITT encoders, BigTIFF IFD loop, ICC CLUT parsing, HistogramEqualization)
-    are fixed only in ImageSharp 4.1.2, which requires a commercial Six Labors licence key, so it is not pinned.
-    FinBERT only tokenises text and never decodes or encodes images, so none of those paths is reachable from
-    Finance.Net. Remove once HF.Net moves off ImageSharp 3.1.x.
-  -->
-  <ItemGroup>
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-gwg2-r3hj-4w44" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wmxv-xphr-5c9g" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j3p4-wp97-rph4" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j9gm-c75j-xc9q" />
-    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jjfr-hcj7-qf5w" />
-  </ItemGroup>
 
 </Project>

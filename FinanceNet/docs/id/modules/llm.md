@@ -129,7 +129,7 @@ var model = new DelegateSentimentModel("FinBERT", async (text, ct) =>
 Checkpoint disimpan di cache Hugging Face bersama (`HF_HUB_CACHE` / `HF_HOME`), sehingga Python dan
 .NET berbagi satu salinan. `LocalFinBertSentiment.Open(dir)` membaca folder lokal. Hasil ukur di laptop
 4 core: sekitar **100 ms per kalimat**. ProsusAI/finbert hanya menyediakan `pytorch_model.bin` legacy
-(pra-torch-1.6); HF.Net 0.8.1 membacanya langsung. `Load(repoId, revision)` menerima branch, tag atau
+(pra-torch-1.6); HF.Net (0.8.1+) membacanya langsung. `Load(repoId, revision)` menerima branch, tag atau
 commit apa pun.
 
 ## Catatan dan batasan

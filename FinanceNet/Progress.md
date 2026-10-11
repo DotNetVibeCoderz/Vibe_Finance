@@ -51,7 +51,7 @@ PhraseBank-style positive/negative/neutral sentences classified correctly, ~100 
 | Finance.Execution | ✅ | OMS, paper broker, FIX 4.4 + session, Binance & IBKR adapters, TWAP/VWAP/POV/Iceberg, SOR, pre-trade risk, TCA. Binance WS and IBKR not tested live |
 | Finance.ML | ✅ | Features, labelling, frac-diff, purged CV, linear/trees/forest/GBM, AR/ARIMA/Holt-Winters, Q-learning + **Gravicode.RLNet DQN/PPO**, factors, Alphalens-style research, SHAP, PDP/ICE |
 | Finance.LLM | ✅ | OpenAI/Azure/Anthropic/Ollama/HF/DeepSeek, SSE streaming, tool calling, FinancialAssistant, FinGPT-style tasks, FinBERT (hosted) |
-| Finance.LLM.Local | ✅ | FinBERT in-process via HF.Net 0.8.1 (which gained legacy `pytorch_model.bin` support for ProsusAI/finbert). Separate package so Finance.LLM stays dependency-free |
+| Finance.LLM.Local | ✅ | FinBERT in-process via HF.Net 0.9.0 (0.8.1 gained legacy `pytorch_model.bin` support for ProsusAI/finbert). Separate package so Finance.LLM stays dependency-free |
 | Finance.NewsAnalytics | ✅ | RSS/Atom, lexicon sentiment, entities, events, MinHash, earnings calls, per-ticker intelligence |
 | Finance.Visualization | ✅ | SVG charts (dark/light), HTML tearsheets |
 | Finance.GPU | ✅ | ILGPU CUDA/OpenCL/CPU: MC European/Asian, batch BSM, MC VaR. DirectML/Vulkan unavailable (ILGPU limitation) |
@@ -78,7 +78,7 @@ Carlo pricing (2.2-2.8×) and Monte Carlo VaR (2.4×).
 - [x] Linux/macOS native binaries for the Rust crate — CI matrix since 0.1.0
 - [x] CI actions on current majors (checkout v7, setup-dotnet v6, upload-artifact v7, download-artifact v8)
 - [x] HF.Net 0.8.1 released (2026-10-11) with legacy `pytorch_model.bin` support; FinBERT loads `main`
-- [ ] HF.Net depends on ImageSharp 3.1.12 (5 advisories, fix only in licence-keyed 4.x); suppressed in
-  `Directory.Build.props` because FinBERT never touches image code
+- [x] ImageSharp off the dependency graph: HF.Net 0.9.0 moved ViT/CLIP to `GraviTransformers.Vision`; Finance.Net
+  needs no audit suppression any more
 - [x] Run the full BenchmarkDotNet suites (2026-10-11, results in docs/en/benchmarks.md)
 - See [PLAN.md](PLAN.md) for v0.2+.
