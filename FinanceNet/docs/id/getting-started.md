@@ -117,6 +117,7 @@ Unit test tidak pernah menyentuh jaringan. Beberapa tes *live* dilewati kecuali 
 | `FINANCENET_LIVE=1` | Permintaan nyata ke Yahoo Finance dan Binance (`Finance.Data.Tests`) |
 | `FINANCENET_LLM_KEYFILE=<path>` | Panggilan chat dan tool-calling sungguhan (`Finance.AI.Tests`) |
 | `FINANCENET_HF_TOKENFILE=<path>` | Inferensi FinBERT di Hugging Face (`Finance.AI.Tests`) |
+| `FINANCENET_FINBERT_LOCAL=1` | FinBERT lokal lewat HF.Net; mengunduh ProsusAI/finbert (~440 MB) sekali (`Finance.AI.Tests`) |
 
 Inferensi hosted Hugging Face mengembalikan HTTP 402 jika akun tidak punya kredit inferensi; tes
 live FinBERT akan melaporkannya lalu dilewati.

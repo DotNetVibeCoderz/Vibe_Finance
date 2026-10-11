@@ -43,7 +43,7 @@ flowchart TB
         Core[Finance.Core<br/>bar, order, kalender, RNG]
         Math[Finance.Math<br/>statistik, matriks, optimizer]
         DF[Finance.DataFrame<br/>frame OHLCV, panel]
-        TS[Finance.TimeSeries<br/>return, rolling, 144 indikator]
+        TS[Finance.TimeSeries<br/>return, rolling, 248 indikator]
     end
     subgraph Data
         MD[Finance.MarketData<br/>Yahoo, Binance, Coinbase, AV, Polygon]
@@ -93,7 +93,7 @@ Semua paket menargetkan `net10.0`. ID NuGet mengikuti pola `Gravicode.<NamaProye
 | `Gravicode.Finance.Core` | Bar, tick, kuotasi, order, fill, posisi, order book, kalender, day count, RNG deterministik, pasar sintetis |
 | `Gravicode.Finance.Math` | Statistik SIMD, matriks padat (interop GraviNum), distribusi normal/Student-t, pencari akar, optimizer, interpolasi, regresi |
 | `Gravicode.Finance.DataFrame` | Frame OHLCV kolumnar, panel harga yang diselaraskan, CSV, interop GraviFrame |
-| `Gravicode.Finance.TimeSeries` | Return, drawdown, statistik rolling O(n), katalog 144 indikator, indikator streaming |
+| `Gravicode.Finance.TimeSeries` | Return, drawdown, statistik rolling O(n), katalog 248 indikator, indikator streaming |
 | `Gravicode.Finance.MarketData` | Provider Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, CSV, sintetis; streaming; data ekonomi dan fundamental |
 | `Gravicode.Finance.AlternativeData` | Sentimen media sosial, analitik ESG, graf rantai pasok, analitik cuaca |
 | `Gravicode.Finance.Pricing` | Black-Scholes, Black-76, Bachelier, tree, Monte Carlo, Heston, SABR, kurva, obligasi, swap, swaption, CDS, produk terstruktur |
@@ -103,6 +103,7 @@ Semua paket menargetkan `net10.0`. ID NuGet mengikuti pola `Gravicode.<NamaProye
 | `Gravicode.Finance.Execution` | OMS, broker paper/Binance/Interactive Brokers, FIX 4.4, TWAP/VWAP/POV/Iceberg, smart order routing, TCA |
 | `Gravicode.Finance.ML` | Tree, forest, boosting, model linear, labeling, purged CV, peramalan, RL (termasuk RLNet), riset faktor, SHAP |
 | `Gravicode.Finance.LLM` | Klien OpenAI, Azure OpenAI, Anthropic, Ollama, Hugging Face; asisten tool-calling; FinBERT |
+| `Gravicode.Finance.LLM.Local` | FinBERT lokal lewat HF.Net (tanpa API, tanpa kredit) |
 | `Gravicode.Finance.NewsAnalytics` | Pembaca RSS, sentimen leksikon keuangan, ekstraksi entitas dan event, de-duplikasi MinHash, earnings call |
 | `Gravicode.Finance.Visualization` | Grafik SVG tanpa dependensi dan tearsheet HTML mandiri |
 | `Gravicode.Finance.GPU` | Pricing Monte Carlo ILGPU, Black-Scholes batch, VaR Monte Carlo |

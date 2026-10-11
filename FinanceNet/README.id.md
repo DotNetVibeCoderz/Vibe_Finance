@@ -40,7 +40,7 @@
 | `Gravicode.Finance.Core` | Bar, tick, kuotasi, order book L2, order/fill/posisi, instrumen, uang, day count, tenor, kalender bursa (NYSE, IDX), RNG yang dapat direproduksi, pasar sintetis |
 | `Gravicode.Finance.Math` | Statistik SIMD, kovarians & Ledoit-Wolf, matriks (Cholesky, LU, eigen via GraviNum), distribusi normal / Student-t, Brent & Newton, projected gradient / Nelder-Mead, spline, OLS / ridge |
 | `Gravicode.Finance.DataFrame` | Frame OHLCV kolumnar, CSV, resampling, panel harga multi-aset, interop GraviFrame |
-| `Gravicode.Finance.TimeSeries` | Return, drawdown, statistik rolling O(n), **katalog 144 entri** (111 indikator + 33 pola candlestick), indikator streaming |
+| `Gravicode.Finance.TimeSeries` | Return, drawdown, statistik rolling O(n), **katalog 248 entri** (188 indikator termasuk siklus Ehlers/Hilbert dan volume profile + 60 pola candlestick), indikator streaming |
 | `Gravicode.Finance.MarketData` | Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, CSV, sintetis; cache, rate limiter, streaming WebSocket, kalender ekonomi, data fundamental |
 | `Gravicode.Finance.AlternativeData` | Sentimen & buzz media sosial (Reddit), analitik ESG (WACI), graf rantai pasok (PageRank, penularan guncangan), cuaca (Open-Meteo, HDD/CDD) |
 | `Gravicode.Finance.Pricing` | Black-Scholes-Merton + Greeks lengkap, implied vol, Black-76, Bachelier, pohon CRR/trinomial, Monte Carlo (Asia, barrier, lookback), Heston, SABR, permukaan volatilitas, bootstrapping kurva, Nelson-Siegel-Svensson, obligasi, FRN, swap, swaption, forward, CDS, produk terstruktur, autocallable |
@@ -50,6 +50,7 @@
 | `Gravicode.Finance.Execution` | OMS, paper broker, mesin & sesi FIX 4.4, adaptor Binance & Interactive Brokers, TWAP / VWAP / POV / Iceberg, smart order routing, cek risiko pra-transaksi, TCA |
 | `Gravicode.Finance.ML` | Rekayasa fitur, label triple-barrier, diferensiasi fraksional, purged CV, model linear/logistik/pohon/forest/boosting, AR/ARIMA/Holt-Winters, agen trading Q-learning + **RLNet DQN/PPO**, model faktor, riset faktor ala Alphalens, Kernel SHAP, PDP/ICE |
 | `Gravicode.Finance.LLM` | Klien OpenAI, Azure OpenAI, Anthropic, Ollama, Hugging Face; streaming; tool calling; agen `FinancialAssistant`; tugas ala FinGPT; FinBERT |
+| `Gravicode.Finance.LLM.Local` | **FinBERT lokal** di dalam proses lewat HF.Net — tanpa API hosted atau kredit (dipisah agar `Finance.LLM` tetap tanpa dependensi) |
 | `Gravicode.Finance.NewsAnalytics` | RSS/Atom, leksikon sentimen keuangan, ekstraksi ticker/entitas, klasifikasi peristiwa, de-duplikasi MinHash, analisis earnings call |
 | `Gravicode.Finance.Visualization` | Grafik SVG tanpa dependensi (candle, garis, frontier, heatmap, histogram) dan tearsheet HTML mandiri |
 | `Gravicode.Finance.GPU` | Monte Carlo, Black-Scholes batch dan VaR Monte Carlo di ILGPU (CUDA / OpenCL / CPU) |
@@ -94,7 +95,7 @@ Aplikasi desktop Avalonia dengan sebelas modul interaktif (`dotnet run --project
 | | |
 |---|---|
 | ![Pasar live](docs/screenshots/01-live-market-dashboard.png) **Live Market Dashboard** — watchlist Binance, candle 1 menit, EMA/RSI | ![Order book](docs/screenshots/02-order-book-viewer.png) **Order Book Viewer** — tangga harga L2, kedalaman, imbalance, biaya sweep |
-| ![Indikator](docs/screenshots/03-indicator-explorer.png) **Indicator Explorer** — seluruh katalog 144 entri dengan parameter live | ![Portofolio](docs/screenshots/04-portfolio-optimizer.png) **Portfolio Optimizer** — 10 metode, frontier, kontribusi risiko |
+| ![Indikator](docs/screenshots/03-indicator-explorer.png) **Indicator Explorer** — seluruh katalog 248 entri dengan parameter live | ![Portofolio](docs/screenshots/04-portfolio-optimizer.png) **Portfolio Optimizer** — 10 metode, frontier, kontribusi risiko |
 | ![VaR](docs/screenshots/05-var-explorer.png) **VaR Explorer** — lima metode VaR, backtest, stress, kipas Monte Carlo | ![Greeks](docs/screenshots/06-greeks-explorer.png) **Greeks Explorer** — BSM vs pohon vs Monte Carlo |
 | ![Strategy builder](docs/screenshots/07-strategy-builder.png) **Strategy Builder** — aturan tanpa kode → backtest → kode C# | ![Backtesting](docs/screenshots/08-backtesting-studio.png) **Backtesting Studio** — strategi bawaan, biaya, walk-forward |
 | ![Asisten AI](docs/screenshots/09-ai-financial-assistant.png) **AI Financial Assistant** — LLM dengan tool calling ke fungsi Finance.Net | ![Berita](docs/screenshots/10-news-intelligence.png) **News Intelligence** — RSS live, sentimen, peristiwa |
@@ -124,7 +125,6 @@ dotnet pack -c Release                              # → artifacts/packages
 
 ## Keterbatasan (jujur)
 
-- Katalog indikator berisi 144 entri; target 200+ ada di [roadmap](PLAN.md).
 - ILGPU tidak punya backend DirectML maupun Vulkan — `Finance.GPU` melaporkannya sebagai tidak tersedia;
   GPU AMD dijangkau melalui OpenCL.
 - Skenario stress historis memakai guncangan yang disederhanakan untuk ilustrasi, bukan untuk regulasi.

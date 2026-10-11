@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Finance.ML/Finance.ML.csproj" />
     <ProjectReference Include="../../src/Finance.LLM/Finance.LLM.csproj" />
+    <ProjectReference Include="../../src/Finance.LLM.Local/Finance.LLM.Local.csproj" />
     <ProjectReference Include="../../src/Finance.NewsAnalytics/Finance.NewsAnalytics.csproj" />
   </ItemGroup>
 

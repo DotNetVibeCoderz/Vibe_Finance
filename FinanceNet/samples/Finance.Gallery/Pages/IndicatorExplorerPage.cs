@@ -13,7 +13,7 @@ namespace Finance.Gallery.Pages;
 public sealed class IndicatorExplorerPage : ModulePage
 {
     public override string Title => "Indicator Explorer";
-    public override string Subtitle => $"All {IndicatorCatalog.Count} entries of the Finance.TimeSeries catalogue — trend, momentum, volatility, volume, statistics and candlestick patterns — computed live.";
+    public override string Subtitle => $"All {IndicatorCatalog.Count} entries of the Finance.TimeSeries catalogue — trend, momentum, volatility, volume, statistics, Ehlers cycles and candlestick patterns — computed live.";
     public override string Glyph => "∿";
     public override string Group => "Markets";
 
@@ -65,6 +65,7 @@ public sealed class IndicatorExplorerPage : ModulePage
         IndicatorCategory.Volume => Palette.SkyColor,
         IndicatorCategory.Statistics => Palette.VioletColor,
         IndicatorCategory.PriceTransform => Palette.OrangeColor,
+        IndicatorCategory.Cycle => Palette.UpColor,
         _ => Palette.PinkColor,
     };
 

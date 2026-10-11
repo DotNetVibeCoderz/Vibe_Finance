@@ -63,7 +63,7 @@ public sealed class HomePage : ModulePage
                         Text = "QuantLib-style pricing, PyPortfolioOpt optimisers, pyfolio analytics, Zipline/Backtrader backtesting, FinRL agents and FinGPT-style language tools — in one coherent, fast, memory-frugal library.",
                         FontSize = 13.5, Foreground = Palette.Brush(Colors.White, 210), TextWrapping = TextWrapping.Wrap, MaxWidth = 640, HorizontalAlignment = HorizontalAlignment.Left,
                     },
-                    Ui.Row(8, Ui.Pill(".NET 10", Palette.SkyColor), Ui.Pill("Rust accelerators", Palette.OrangeColor), Ui.Pill("ILGPU", Palette.GoldColor), Ui.Pill("17 modules", Palette.TealColor), Ui.Pill("MIT", Palette.VioletColor)),
+                    Ui.Row(8, Ui.Pill(".NET 10", Palette.SkyColor), Ui.Pill("Rust accelerators", Palette.OrangeColor), Ui.Pill("ILGPU", Palette.GoldColor), Ui.Pill("18 modules", Palette.TealColor), Ui.Pill("MIT", Palette.VioletColor)),
                     new TextBlock { Text = FinanceInfo.CreditIndonesian + "  ·  " + FinanceInfo.CreditEnglish, FontSize = 11.5, Foreground = Palette.Brush(Colors.White, 170), Margin = new Thickness(0, 8, 0, 0), TextWrapping = TextWrapping.Wrap }),
                 new LineChart
                 {

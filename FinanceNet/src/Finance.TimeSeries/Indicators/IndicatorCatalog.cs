@@ -4,7 +4,7 @@ using Finance.DataFrame;
 namespace Finance.TimeSeries.Indicators;
 
 /// <summary>Indicator family, used for grouping in UIs.</summary>
-public enum IndicatorCategory { Trend, Momentum, Volatility, Volume, Statistics, PriceTransform, Pattern }
+public enum IndicatorCategory { Trend, Momentum, Volatility, Volume, Statistics, PriceTransform, Pattern, Cycle }
 
 /// <summary>A numeric indicator parameter with default and suggested range.</summary>
 public sealed record IndicatorParameter(string Name, double Default, double Min, double Max, string Description = "")
@@ -359,6 +359,8 @@ public static class IndicatorCatalog
             return new[] { S("Open", ha.Select(b => b.Open).ToArray()), S("High", ha.Select(b => b.High).ToArray()), S("Low", ha.Select(b => b.Low).ToArray()), S("Close", ha.Select(b => b.Close).ToArray()) };
         });
 
+        RegisterExtended();
+
         // Candlestick patterns
         foreach (var p in Candlesticks.All)
         {
@@ -367,6 +369,178 @@ public static class IndicatorCatalog
             Add(id, Spaced(pattern.ToString()), IndicatorCategory.Pattern, "Candlestick pattern: +100 bullish, −100 bearish, 0 none.", false, none,
                 i => new[] { S(id, Array.ConvertAll(Candlesticks.Detect(i.Bars, pattern), v => (double)v)) });
         }
+    }
+
+    // Second wave (v0.2): Ehlers cycles, adaptive averages, Bill Williams tools, trend quality, more oscillators,
+    // range bands, volume flow, rolling profiles and descriptive statistics.
+    private static void RegisterExtended()
+    {
+        const IndicatorCategory T = IndicatorCategory.Trend, M = IndicatorCategory.Momentum, V = IndicatorCategory.Volatility,
+            Vo = IndicatorCategory.Volume, St = IndicatorCategory.Statistics, Pt = IndicatorCategory.PriceTransform, C = IndicatorCategory.Cycle;
+        var none = Array.Empty<IndicatorParameter>();
+
+        // Cycles (Hilbert transform family and Ehlers filters)
+        One("HT_DCPERIOD", "Hilbert Dominant Cycle Period", C, "Dominant cycle length in bars (6-50).", false, none, i => Ta.HilbertTransform(i.Close).DominantPeriod);
+        One("HT_DCPHASE", "Hilbert Dominant Cycle Phase", C, "Phase of the dominant cycle in degrees.", false, none, i => Ta.HilbertTransform(i.Close).DominantPhase);
+        Add("HT_PHASOR", "Hilbert Phasor Components", C, "In-phase and quadrature components.", false, none, i =>
+        {
+            var h = Ta.HilbertTransform(i.Close);
+            return new[] { S("InPhase", h.InPhase), S("Quadrature", h.Quadrature) };
+        });
+        Add("HT_SINE", "Hilbert SineWave", C, "Sine of the cycle phase and a 45° lead sine.", false, none, i =>
+        {
+            var h = Ta.HilbertTransform(i.Close);
+            return new[] { S("Sine", h.Sine), S("LeadSine", h.LeadSine) };
+        });
+        One("HT_TRENDLINE", "Hilbert Instantaneous Trendline", C, "Price averaged over one dominant cycle.", true, none, i => Ta.HilbertTransform(i.Close).Trendline);
+        One("HT_TRENDMODE", "Hilbert Trend vs Cycle Mode", C, "1 = trending, 0 = cycling.", false, none, i => Ta.HilbertTransform(i.Close).TrendMode);
+        Add("MAMA", "MESA Adaptive Moving Average", C, "MAMA and FAMA, adapting to the phase rate.", true, new[] { Real("fast", 0.5, 0.05, 0.99, "Fast limit"), Real("slow", 0.05, 0.01, 0.5, "Slow limit") }, i =>
+        {
+            var (m, f) = Ta.Mama(i.Close, i.P("fast"), i.P("slow"));
+            return new[] { S("MAMA", m), S("FAMA", f) };
+        });
+        One("SUPERSMOOTHER", "Ehlers Super Smoother", C, "Two-pole Butterworth low-pass filter.", true, new[] { Per(def: 10) }, i => Ta.SuperSmoother(i.Close, i.N("period")));
+        One("ROOFING", "Ehlers Roofing Filter", C, "High-pass then Super Smoother: the cycle band only.", false, new[] { Per("highpass", 48, 5, 200), Per("lowpass", 10) }, i => Ta.RoofingFilter(i.Close, i.N("highpass"), i.N("lowpass")));
+        One("DECYCLER", "Ehlers Simple Decycler", C, "Price minus a high-pass: trend with short cycles removed.", true, new[] { Per(def: 60) }, i => Ta.Decycler(i.Close, i.N("period")));
+        One("LAGUERRERSI", "Laguerre RSI", C, "Ehlers' four-element Laguerre filter RSI (0-1).", false, new[] { Real("gamma", 0.5, 0, 0.95, "Damping factor") }, i => Ta.LaguerreRsi(i.Close, i.P("gamma")));
+        One("ITREND", "Ehlers Instantaneous Trendline", C, "Two-pole trendline with near-zero lag.", true, new[] { Real("alpha", 0.07, 0.01, 0.5) }, i => Ta.InstantaneousTrendline(i.Close, i.P("alpha")));
+        One("CG", "Center of Gravity", C, "Ehlers' zero-lag balance-point oscillator.", false, new[] { Per(def: 10) }, i => Ta.CenterOfGravity(i.Close, i.N("period")));
+
+        // Trend
+        One("FRAMA", "Fractal Adaptive MA", T, "EMA whose α follows the fractal dimension.", true, new[] { Per(def: 16, min: 4) }, i => Ta.Frama(i.High, i.Low, i.Close, i.N("period")));
+        One("SINWMA", "Sine-Weighted MA", T, "Weights follow a half sine wave.", true, new[] { Per(def: 14) }, i => Ta.SineWma(i.Close, i.N("period")));
+        One("GMA", "Geometric Moving Average", T, "exp of the mean log price.", true, new[] { Per(def: 10) }, i => Ta.GeometricMa(i.Close, i.N("period")));
+        One("EHMA", "Exponential Hull MA", T, "Hull MA built from EMAs.", true, new[] { Per(def: 20) }, i => Ta.Ehma(i.Close, i.N("period")));
+        Add("ALLIGATOR", "Williams Alligator", T, "Displaced SMMAs of the median price (jaw, teeth, lips).", true, none, i =>
+        {
+            var (j, t, l) = Ta.Alligator(i.High, i.Low);
+            return new[] { S("Jaw", j), S("Teeth", t), S("Lips", l) };
+        });
+        Add("GATOR", "Gator Oscillator", T, "Alligator line spreads above and below zero.", false, none, i =>
+        {
+            var (u, l) = Ta.Gator(i.High, i.Low);
+            return new[] { S("Upper", u), S("Lower", l) };
+        });
+        Add("FRACTALS", "Williams Fractals", T, "Swing highs/lows, reported when confirmed.", true, new[] { Per("wing", 2, 1, 10, "Bars on each side") }, i =>
+        {
+            var (u, d) = Ta.Fractals(i.High, i.Low, i.N("wing"));
+            return new[] { S("Up", u), S("Down", d) };
+        });
+        One("ZIGZAG", "ZigZag", T, "Swing line for reversals ≥ x% (drawn with hindsight).", true, new[] { Real("percent", 5, 0.5, 50) }, i => Ta.ZigZag(i.High, i.Low, i.P("percent")));
+        One("VHF", "Vertical Horizontal Filter", T, "Range over path length: trending vs. congested.", false, new[] { Per(def: 28) }, i => Ta.Vhf(i.Close, i.N("period")));
+        One("ER", "Kaufman Efficiency Ratio", T, "Net move over path length (0-1).", false, new[] { Per(def: 10, min: 1) }, i => Ta.EfficiencyRatio(i.Close, i.N("period")));
+        One("TII", "Trend Intensity Index", T, "Share of positive deviations from the SMA (0-100).", false, new[] { Per(def: 60), Per("window", 30) }, i => Ta.TrendIntensity(i.Close, i.N("period"), i.N("window")));
+        One("PFE", "Polarized Fractal Efficiency", T, "Signed path efficiency, EMA-smoothed (−100..100).", false, new[] { Per(def: 10, min: 1), Per("smooth", 5, 1, 50) }, i => Ta.Pfe(i.Close, i.N("period"), i.N("smooth")));
+        Add("RWI", "Random Walk Index", T, "Moves relative to a random walk's expected range.", false, new[] { Per(def: 14) }, i =>
+        {
+            var (h, l) = Ta.RandomWalkIndex(i.High, i.Low, i.Close, i.N("period"));
+            return new[] { S("High", h), S("Low", l) };
+        });
+
+        // Momentum
+        One("PLUS_DI", "Plus Directional Indicator", M, "+DI of Wilder's DMI.", false, new[] { Per(def: 14) }, i => Ta.Dmi(i.High, i.Low, i.Close, i.N("period")).PlusDi);
+        One("MINUS_DI", "Minus Directional Indicator", M, "−DI of Wilder's DMI.", false, new[] { Per(def: 14) }, i => Ta.Dmi(i.High, i.Low, i.Close, i.N("period")).MinusDi);
+        One("PLUS_DM", "Plus Directional Movement", M, "Wilder-smoothed +DM.", false, new[] { Per(def: 14) }, i => Ta.DirectionalMovement(i.High, i.Low, i.N("period")).Plus);
+        One("MINUS_DM", "Minus Directional Movement", M, "Wilder-smoothed −DM.", false, new[] { Per(def: 14) }, i => Ta.DirectionalMovement(i.High, i.Low, i.N("period")).Minus);
+        One("ROCP", "Rate of Change (fraction)", M, "(close − close[n]) / close[n].", false, new[] { Per(def: 10, min: 1) }, i => Ta.RocFraction(i.Close, i.N("period")));
+        One("ROCR100", "Rate of Change Ratio ×100", M, "100 · close / close[n].", false, new[] { Per(def: 10, min: 1) }, i => Array.ConvertAll(Ta.RocRatio(i.Close, i.N("period")), v => 100 * v));
+        Add("PMO", "Price Momentum Oscillator", M, "DecisionPoint double-smoothed ROC with signal.", false, new[] { Per("first", 35), Per("second", 20), Per("signal", 10) }, i =>
+        {
+            var (p, s) = Ta.Pmo(i.Close, i.N("first"), i.N("second"), i.N("signal"));
+            return new[] { S("PMO", p), S("Signal", s) };
+        });
+        One("RMI", "Relative Momentum Index", M, "RSI of n-bar momentum.", false, new[] { Per(def: 14), Per("momentum", 5, 1, 50) }, i => Ta.Rmi(i.Close, i.N("period"), i.N("momentum")));
+        Add("SMI", "Stochastic Momentum Index", M, "Close vs. range midpoint, double-smoothed.", false, new[] { Per(def: 10), Per("smooth1", 3, 1, 50), Per("smooth2", 3, 1, 50), Per("signal", 10) }, i =>
+        {
+            var (s, g) = Ta.Smi(i.High, i.Low, i.Close, i.N("period"), i.N("smooth1"), i.N("smooth2"), i.N("signal"));
+            return new[] { S("SMI", s), S("Signal", g) };
+        });
+        One("INERTIA", "Inertia", M, "Linear regression of the Relative Volatility Index.", false, new[] { Per(def: 20), Per("rvi", 14) }, i => Ta.Inertia(i.Close, i.N("period"), i.N("rvi")));
+        One("PSL", "Psychological Line", M, "Percent of up closes over n bars.", false, new[] { Per(def: 12) }, i => Ta.PsychologicalLine(i.Close, i.N("period")));
+        One("IMI", "Intraday Momentum Index", M, "RSI of candle bodies (0-100).", false, new[] { Per(def: 14) }, i => Ta.IntradayMomentum(i.Open, i.Close, i.N("period")));
+        One("PGO", "Pretty Good Oscillator", M, "Distance from SMA in ATR units.", false, new[] { Per(def: 14) }, i => Ta.PrettyGoodOscillator(i.High, i.Low, i.Close, i.N("period")));
+        One("CFO", "Chande Forecast Oscillator", M, "Percent gap between close and the regression forecast.", false, new[] { Per(def: 14) }, i => Ta.ForecastOscillator(i.Close, i.N("period")));
+        One("BIAS", "Bias (Disparity Index)", M, "Percent distance of close from its SMA.", false, new[] { Per(def: 20) }, i => Ta.Bias(i.Close, i.N("period")));
+        One("DSS", "Double Smoothed Stochastic", M, "Bressert's stochastic of a smoothed stochastic.", false, new[] { Per(def: 13), Per("smooth", 8, 1, 50) }, i => Ta.DoubleSmoothedStochastic(i.High, i.Low, i.Close, i.N("period"), i.N("smooth")));
+        Add("WAVETREND", "WaveTrend", M, "Channel-index oscillator with a 4-bar signal.", false, new[] { Per("channel", 10), Per("average", 21) }, i =>
+        {
+            var (a, b) = Ta.WaveTrend(i.High, i.Low, i.Close, i.N("channel"), i.N("average"));
+            return new[] { S("WT1", a), S("WT2", b) };
+        });
+        Add("KDJ", "KDJ", M, "Slow stochastic with J = 3K − 2D.", false, new[] { Per(def: 9), Per("smooth", 3, 1, 20), Per("signal", 3, 1, 20) }, i =>
+        {
+            var (k, d, j) = Ta.Kdj(i.High, i.Low, i.Close, i.N("period"), i.N("smooth"), i.N("signal"));
+            return new[] { S("K", k), S("D", d), S("J", j) };
+        });
+        One("WAD", "Williams Accumulation/Distribution", M, "Cumulative close vs. true high/low.", false, none, i => Ta.WilliamsAd(i.High, i.Low, i.Close));
+        Add("SQUEEZE", "Squeeze Momentum", M, "Bollinger-inside-Keltner flag and momentum.", false, new[] { Per(def: 20), Real("bb", 2, 0.5, 5), Real("kc", 1.5, 0.5, 5) }, i =>
+        {
+            var (s, m) = Ta.Squeeze(i.High, i.Low, i.Close, i.N("period"), i.P("bb"), i.P("kc"));
+            return new[] { S("Squeeze", s), S("Momentum", m) };
+        });
+
+        // Volatility
+        One("YANGZHANG", "Yang-Zhang Volatility", V, "Overnight + open-close + Rogers-Satchell estimator (%).", false, new[] { Per(def: 20, min: 3) }, i => Ta.YangZhangVolatility(i.Open, i.High, i.Low, i.Close, i.N("period")));
+        One("EWMAVOL", "EWMA Volatility", V, "RiskMetrics exponentially weighted volatility (%).", false, new[] { Real("lambda", 0.94, 0.5, 0.999) }, i => Ta.EwmaVolatility(i.Close, i.P("lambda")));
+        One("RVOLIDX", "Relative Volatility Index", V, "Dorsey's RSI of standard deviation (0-100).", false, new[] { Per("std", 10), Per(def: 14) }, i => Ta.RelativeVolatilityIndex(i.Close, i.N("std"), i.N("period")));
+        Add("STARC", "STARC Bands", V, "SMA ± k × ATR.", true, new[] { Per(def: 6), Per("atr", 15), Real("k", 2, 0.5, 5) }, i =>
+        {
+            var (u, m, l) = Ta.Starc(i.High, i.Low, i.Close, i.N("period"), i.N("atr"), i.P("k"));
+            return new[] { S("Upper", u), S("Middle", m), S("Lower", l) };
+        });
+        Add("ACCBANDS", "Acceleration Bands", V, "Headley's range-widened high/low bands.", true, new[] { Per(def: 20), Real("factor", 4, 0.5, 10) }, i =>
+        {
+            var (u, m, l) = Ta.AccelerationBands(i.High, i.Low, i.Close, i.N("period"), i.P("factor"));
+            return new[] { S("Upper", u), S("Middle", m), S("Lower", l) };
+        });
+        Add("SEB", "Standard Error Bands", V, "Regression line ± k standard errors.", true, new[] { Per(def: 21, min: 3), Real("k", 2, 0.5, 5) }, i =>
+        {
+            var (u, m, l) = Ta.StandardErrorBands(i.Close, i.N("period"), i.P("k"));
+            return new[] { S("Upper", u), S("Middle", m), S("Lower", l) };
+        });
+        One("ADR", "Average Daily Range", V, "SMA of high − low.", false, new[] { Per(def: 14) }, i => Ta.AverageRange(i.High, i.Low, i.N("period")));
+
+        // Volume
+        One("TMF", "Twiggs Money Flow", Vo, "True-range A/D volume over volume, Wilder-smoothed.", false, new[] { Per(def: 21) }, i => Ta.TwiggsMoneyFlow(i.High, i.Low, i.Close, i.Volume, i.N("period")));
+        One("BWMFI", "Market Facilitation Index", Vo, "Bill Williams' (high − low) / volume.", false, none, i => Ta.MarketFacilitation(i.High, i.Low, i.Volume));
+        One("VZO", "Volume Zone Oscillator", Vo, "EMA of signed volume over EMA of volume (%).", false, new[] { Per(def: 14) }, i => Ta.VolumeZoneOscillator(i.Close, i.Volume, i.N("period")));
+        One("RVOL", "Relative Volume", Vo, "Volume over its trailing average.", false, new[] { Per(def: 20) }, i => Ta.RelativeVolume(i.Volume, i.N("period")));
+        Add("VWMACD", "Volume-Weighted MACD", Vo, "MACD built from VWMAs.", false, new[] { Per("fast", 12), Per("slow", 26), Per("signal", 9) }, i =>
+        {
+            var (m, s, h) = Ta.VwMacd(i.Close, i.Volume, i.N("fast"), i.N("slow"), i.N("signal"));
+            return new[] { S("MACD", m), S("Signal", s), S("Histogram", h) };
+        });
+        One("VPCI", "Volume Price Confirmation", Vo, "Dormeier's volume-confirmed trend gauge.", false, new[] { Per("short", 5), Per("long", 20) }, i => Ta.Vpci(i.Close, i.Volume, i.N("short"), i.N("long")));
+        Add("VPROFILE", "Volume Profile (rolling)", Vo, "Point of control and 70% value area by volume.", true, new[] { Per(def: 50, min: 5), Per("bins", 24, 4, 200, "Price bins") }, i =>
+        {
+            var r = Ta.VolumeProfile(i.High, i.Low, i.Volume, i.N("period"), i.N("bins"));
+            return new[] { S("POC", r.PointOfControl), S("VAH", r.ValueAreaHigh), S("VAL", r.ValueAreaLow) };
+        });
+        Add("TPO", "Market Profile (TPO, rolling)", Vo, "Point of control and value area by time at price.", true, new[] { Per(def: 50, min: 5), Per("bins", 24, 4, 200, "Price bins") }, i =>
+        {
+            var r = Ta.MarketProfile(i.High, i.Low, i.N("period"), i.N("bins"));
+            return new[] { S("POC", r.PointOfControl), S("VAH", r.ValueAreaHigh), S("VAL", r.ValueAreaLow) };
+        });
+
+        // Statistics
+        One("RSQ", "R-Squared", St, "Fit quality of the rolling regression on time.", false, new[] { Per(def: 20) }, i => Ta.RSquared(i.Close, i.N("period")));
+        One("STDERR", "Standard Error", St, "Standard error of the rolling regression.", false, new[] { Per(def: 20, min: 3) }, i => Ta.StandardError(i.Close, i.N("period")));
+        One("MAD", "Mean Absolute Deviation", St, "Mean |x − mean| over n bars.", false, new[] { Per(def: 20) }, i => Ta.MeanAbsoluteDeviation(i.Close, i.N("period")));
+        One("MAX", "Highest Value", St, "Highest close over n bars.", true, new[] { Per(def: 20, min: 1) }, i => Rolling.Max(i.Close, i.N("period")));
+        One("MIN", "Lowest Value", St, "Lowest close over n bars.", true, new[] { Per(def: 20, min: 1) }, i => Rolling.Min(i.Close, i.N("period")));
+        One("MAXINDEX", "Bars Since Highest", St, "Bars since the highest close in the window.", false, new[] { Per(def: 20, min: 1) }, i => Ta.BarsSinceExtreme(i.Close, i.N("period"), max: true));
+        One("MININDEX", "Bars Since Lowest", St, "Bars since the lowest close in the window.", false, new[] { Per(def: 20, min: 1) }, i => Ta.BarsSinceExtreme(i.Close, i.N("period"), max: false));
+        One("SUM", "Summation", St, "Rolling sum of closes.", false, new[] { Per(def: 20, min: 1) }, i => Rolling.Sum(i.Close, i.N("period")));
+        One("ENTROPY", "Shannon Entropy", St, "Entropy (bits) of the normalised window.", false, new[] { Per(def: 10) }, i => Ta.Entropy(i.Close, i.N("period")));
+        One("AUTOCORR", "Return Autocorrelation", St, "Rolling lag-k autocorrelation of log returns.", false, new[] { Per(def: 30, min: 5), Per("lag", 1, 1, 20) }, i => Ta.Autocorrelation(i.Close, i.N("period"), i.N("lag")));
+        One("CV", "Coefficient of Variation", St, "Standard deviation over mean.", false, new[] { Per(def: 20) }, i => Ta.CoefficientOfVariation(i.Close, i.N("period")));
+        One("QUANTILE", "Rolling Quantile", St, "q-quantile of the window (linear interpolation).", true, new[] { Per(def: 20), Real("q", 0.75, 0, 1) }, i => Ta.RollingQuantile(i.Close, i.N("period"), i.P("q")));
+        One("SHARPE", "Rolling Sharpe Ratio", St, "Annualised mean/std of log returns.", false, new[] { Per(def: 63, min: 5) }, i => Ta.RollingSharpe(i.Close, i.N("period")));
+        One("DRAWDOWN", "Drawdown", St, "Percent below the running peak.", false, none, i => Ta.Drawdown(i.Close));
+
+        // Price transforms
+        One("LOGRET", "Log Return", Pt, "ln(close / previous close).", false, none, i => Ta.LogReturn(i.Close));
+        One("PCTRET", "Percent Return", Pt, "One-bar percent change.", false, none, i => Ta.Roc(i.Close, 1));
     }
 
     private static double[] Log(double[] close)

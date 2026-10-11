@@ -14,6 +14,7 @@
     <Project Path="src/Finance.Execution/Finance.Execution.csproj" />
     <Project Path="src/Finance.GPU/Finance.GPU.csproj" />
     <Project Path="src/Finance.LLM/Finance.LLM.csproj" />
+    <Project Path="src/Finance.LLM.Local/Finance.LLM.Local.csproj" />
     <Project Path="src/Finance.MarketData/Finance.MarketData.csproj" />
     <Project Path="src/Finance.Math/Finance.Math.csproj" />
     <Project Path="src/Finance.ML/Finance.ML.csproj" />

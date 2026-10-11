@@ -42,7 +42,7 @@ ukuran order yang makin besar. Diperbarui setiap detik. *Modul: MarketData, Core
 
 ### Indicator Explorer
 
-Jelajahi ke-144 entri katalog indikator berdasarkan kategori atau pencarian, atur setiap parameter
+Jelajahi ke-248 entri katalog indikator berdasarkan kategori atau pencarian, atur setiap parameter
 dengan slider, dan lihat hasilnya sebagai overlay harga atau di panel tersendiri, lengkap dengan nilai
 terakhir. *Modul: TimeSeries.*
 

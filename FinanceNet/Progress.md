@@ -2,14 +2,14 @@
 
 > Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
 
-Last updated / Terakhir diperbarui: **2026-10-10** · Version **0.1.0**
+Last updated / Terakhir diperbarui: **2026-10-11** · Version **0.1.0** published, next **0.2.0** in progress
 
 ## Summary / Ringkasan
 
 | Item | Status |
 |---|---|
-| Libraries (17 modules) | ✅ all build, 0 errors |
-| Unit tests | ✅ **331 passed, 0 failed, 3 skipped** (skipped = live tests gated by env vars) |
+| Libraries (18 packages) | ✅ all build, 0 warnings, 0 errors (`Finance.LLM.Local` added after 0.1.0) |
+| Unit tests | ✅ **369 passed, 0 failed, 4 skipped** (skipped = live tests gated by env vars) |
 | Rust crate `finance_native` | ✅ `cargo test` 15/15, loaded by Finance.RustBridge with managed fallback |
 | Finance.Net Gallery (Avalonia) | ✅ 11 modules + overview, screenshots in `docs/screenshots` |
 | Quickstart console sample | ✅ nine-section tour + HTML tearsheet |
@@ -22,16 +22,17 @@ Last updated / Terakhir diperbarui: **2026-10-10** · Version **0.1.0**
 | Test project | Modules | Result |
 |---|---|---|
 | Finance.Foundation.Tests | Core, Math | 50 / 50 |
-| Finance.Analytics.Tests | DataFrame, TimeSeries, Visualization | 51 / 51 |
+| Finance.Analytics.Tests | DataFrame, TimeSeries, Visualization | 88 / 88 |
 | Finance.Quant.Tests | Pricing, Risk | 56 / 56 |
 | Finance.Portfolio.Tests | Portfolio, Backtesting | 50 / 50 |
 | Finance.Data.Tests | MarketData, AlternativeData, Execution | 53 / 53 (+1 live, skipped) |
-| Finance.AI.Tests | ML, LLM, NewsAnalytics | 37 / 37 (+2 live, skipped) |
+| Finance.AI.Tests | ML, LLM, LLM.Local, NewsAnalytics | 38 / 38 (+3 live, skipped) |
 | Finance.Native.Tests | GPU, RustBridge | 34 / 34 |
 
 Live checks run once by hand: Yahoo chart API ✅, Binance klines/depth/ticker ✅ (via
-`data-api.binance.vision`), Azure OpenAI chat + tool calling + JSON ✅, Hugging Face FinBERT ❌ (HTTP 402 —
-the account has no Inference credits).
+`data-api.binance.vision`), Azure OpenAI chat + tool calling + JSON ✅, hosted Hugging Face FinBERT ❌ (HTTP 402 —
+the account has no Inference credits), **local FinBERT through HF.Net ✅** (`FINANCENET_FINBERT_LOCAL=1`;
+PhraseBank-style positive/negative/neutral sentences classified correctly, ~100 ms per sentence).
 
 ## Modules / Modul
 
@@ -40,7 +41,7 @@ the account has no Inference credits).
 | Finance.Core | ✅ | Bars, quotes, L2 book, orders/positions, day counts, tenors, NYSE/IDX calendars, xoshiro RNG, synthetic markets |
 | Finance.Math | ✅ | SIMD stats, Ledoit-Wolf, Matrix (+GraviNum eigen), Normal/Student-t, Brent/Newton, projected gradient, Nelder-Mead, splines, OLS/ridge |
 | Finance.DataFrame | ✅ | OhlcvFrame, CSV, resample, PricePanel, GraviFrame interop. Panel alignment is exact-timestamp inner join only |
-| Finance.TimeSeries | ✅ | Returns, rolling O(n), streaming indicators; **catalogue 144 entries (111 + 33 patterns) — target 200+ open** |
+| Finance.TimeSeries | ✅ | Returns, rolling O(n), streaming indicators; **catalogue 248 entries (188 indicators + 60 patterns)**, incl. Hilbert/Ehlers cycles, rolling volume profile and TPO |
 | Finance.MarketData | ✅ | Yahoo, Alpha Vantage, Polygon, Binance, Coinbase, CSV, synthetic, cache, rate limiter, WebSocket, economic, fundamentals. Coinbase not verified live (TLS failure from this network) |
 | Finance.AlternativeData | ✅ | Social (Reddit), ESG, supply chain, weather. Reddit unauthenticated access is usually blocked |
 | Finance.Pricing | ✅ | BSM+Greeks, IV, Black-76, Bachelier, trees, MC, Heston, SABR, surfaces, curves, NSS, bonds, FRN, IRS, swaptions, forwards, CDS, structured, autocallable |
@@ -50,10 +51,11 @@ the account has no Inference credits).
 | Finance.Execution | ✅ | OMS, paper broker, FIX 4.4 + session, Binance & IBKR adapters, TWAP/VWAP/POV/Iceberg, SOR, pre-trade risk, TCA. Binance WS and IBKR not tested live |
 | Finance.ML | ✅ | Features, labelling, frac-diff, purged CV, linear/trees/forest/GBM, AR/ARIMA/Holt-Winters, Q-learning + **Gravicode.RLNet DQN/PPO**, factors, Alphalens-style research, SHAP, PDP/ICE |
 | Finance.LLM | ✅ | OpenAI/Azure/Anthropic/Ollama/HF/DeepSeek, SSE streaming, tool calling, FinancialAssistant, FinGPT-style tasks, FinBERT (hosted) |
+| Finance.LLM.Local | ✅ | FinBERT in-process via HF.Net 0.8.0; loads ProsusAI/finbert from the safetensors conversion (`refs/pr/29`). Separate package so Finance.LLM stays dependency-free |
 | Finance.NewsAnalytics | ✅ | RSS/Atom, lexicon sentiment, entities, events, MinHash, earnings calls, per-ticker intelligence |
 | Finance.Visualization | ✅ | SVG charts (dark/light), HTML tearsheets |
 | Finance.GPU | ✅ | ILGPU CUDA/OpenCL/CPU: MC European/Asian, batch BSM, MC VaR. DirectML/Vulkan unavailable (ILGPU limitation) |
-| Finance.RustBridge | ✅ | Rust kernels with identical managed fallback; MSBuild cargo integration; packs `runtimes/win-x64/native` |
+| Finance.RustBridge | ✅ | Rust kernels with identical managed fallback; MSBuild cargo integration; packs `runtimes/{win-x64,linux-x64,osx-arm64}/native` (built in CI) |
 
 ## Gallery
 
@@ -61,17 +63,23 @@ Overview, Live Market Dashboard, Order Book Viewer, Indicator Explorer, Portfoli
 Greeks Explorer, Strategy Builder, Backtesting Studio, AI Financial Assistant, News Intelligence, Social
 Sentiment — all verified by headless screenshot capture with live Binance, RSS and Azure OpenAI data.
 
-## Benchmarks (`--quick`, measured)
+## Benchmarks (measured: `--quick` and full BenchmarkDotNet suites)
 
-See [docs/en/benchmarks.md](docs/en/benchmarks.md). Rust clearly wins for historical VaR (2.6×) and
-multi-threaded Monte Carlo (1.3×); simple indicators and Black-Scholes are on par with managed code. The
-integrated GPU wins for Monte Carlo pricing (2.8×) and Monte Carlo VaR (2.4×).
+See [docs/en/benchmarks.md](docs/en/benchmarks.md). Rust clearly wins for historical VaR (2.4-2.6×);
+simple indicators and Black-Scholes are on par with managed code; multi-threaded Monte Carlo is
+1.3× in `--quick` but tied in BenchmarkDotNet (throttling noise). The integrated GPU wins for Monte
+Carlo pricing (2.2-2.8×) and Monte Carlo VaR (2.4×).
 
 ## Open items / Pekerjaan terbuka
 
 - [x] Publish `Gravicode.Finance.*` 0.1.0 to nuget.org (2026-10-10)
-- [ ] Indicator catalogue to 200+
-- [ ] Local FinBERT through HF.Net (no hosted credits needed)
-- [ ] Linux/macOS native binaries for the Rust crate
-- [ ] Run the full BenchmarkDotNet suites (only `--quick` measured so far)
+- [x] Indicator catalogue to 200+ — 248 entries (2026-10-11)
+- [x] Local FinBERT through HF.Net (2026-10-11) — `Gravicode.Finance.LLM.Local`, not yet on nuget.org
+- [x] Linux/macOS native binaries for the Rust crate — CI matrix since 0.1.0
+- [x] CI actions on current majors (checkout v7, setup-dotnet v6, upload-artifact v7, download-artifact v8)
+- [ ] HF.Net: legacy `pytorch_model.bin` support is fixed in the HF.Net repo (not yet released); once
+  released, `LocalFinBertSentiment` can load ProsusAI/finbert `main` directly
+- [ ] HF.Net depends on ImageSharp 3.1.12 (5 advisories, fix only in licence-keyed 4.x); suppressed in
+  `Directory.Build.props` because FinBERT never touches image code
+- [x] Run the full BenchmarkDotNet suites (2026-10-11, results in docs/en/benchmarks.md)
 - See [PLAN.md](PLAN.md) for v0.2+.

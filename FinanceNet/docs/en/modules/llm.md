@@ -5,7 +5,8 @@
 Large-language-model integration for finance: one `IChatModel` abstraction over OpenAI, Azure
 OpenAI, Anthropic, Ollama, Hugging Face and any OpenAI-compatible server; streaming; tool
 (function) calling; a `FinancialAssistant` agent loop whose tools are your own C# functions;
-FinGPT-style task helpers with structured JSON outputs; and FinBERT sentiment through Hugging Face.
+FinGPT-style task helpers with structured JSON outputs; and FinBERT sentiment through Hugging Face —
+hosted here, or in-process through the companion package `Gravicode.Finance.LLM.Local`.
 
 Namespace: `Finance.LLM`. It depends only on `Finance.Core` — the host application decides which
 Finance.Net functions to expose as tools.
@@ -104,12 +105,42 @@ SentimentResult fs = await finbert.AnalyzeAsync("Revenue grew 25% year over year
 IReadOnlyList<LabelScore> raw = await hfClient.ClassifyAsync("ProsusAI/finbert", "Shares plunged after the downgrade.");
 ```
 
+## Local FinBERT (no API, no credits)
+
+Package `Gravicode.Finance.LLM.Local` runs FinBERT in-process through HF.Net
+(`Gravicode.HFNet.GraviTransformers`). It is a separate package so that `Gravicode.Finance.LLM` keeps
+zero heavy dependencies.
+
+```csharp
+using Finance.LLM.Local;
+
+using var finbert = LocalFinBertSentiment.Load();               // ProsusAI/finbert, ~440 MB, downloaded once
+SentimentResult s = finbert.Analyze("Operating profit rose to EUR 13.1 mn from EUR 8.7 mn.");
+// s.Label = "positive", s.Score = P(positive) − P(negative) = 0.92, s.Source = "FinBERT (local)"
+IReadOnlyList<LabelScore> all = finbert.Classify("Quarterly profit fell sharply.");
+
+// Plug it into the news pipeline:
+var model = new DelegateSentimentModel("FinBERT", async (text, ct) =>
+{
+    var r = await finbert.AnalyzeAsync(text, ct);
+    return (r.Label, r.Score);
+});
+```
+
+The checkpoint goes into the shared Hugging Face cache (`HF_HUB_CACHE` / `HF_HOME`), so Python and
+.NET share one copy. `LocalFinBertSentiment.Open(dir)` reads a local folder instead. Measured on a
+4-core laptop: about **100 ms per sentence**. ProsusAI/finbert's `main` branch only has a legacy
+(pre-torch-1.6) `pytorch_model.bin`, which HF.Net 0.8.0 cannot read, so `Load()` uses the
+safetensors conversion that Hugging Face's own bot published (`refs/pr/29`, exposed as
+`DefaultModelRevision`); both files give identical probabilities.
+
 ## Notes and limitations
 
 - **Live status**: the Azure OpenAI path (chat, tool-calling loop, JSON sentiment) was verified
   against a real deployment. The **Hugging Face FinBERT** call authenticated but the hosted API
   answered **HTTP 402 — no inference credits** on the test account; it needs prepaid credits or HF
-  PRO. Local FinBERT through HF.Net/ONNX is on the roadmap.
+  PRO. **Local FinBERT** (`Finance.LLM.Local`, above) needs neither and was verified on the real
+  model.
 - When a key file lists several deployments in `model:`, the first is used.
 - Never commit key files; `LlmSettings.ToString()` redacts keys for logging.
 - The assistant does not give personalised investment advice (it says so in its default system

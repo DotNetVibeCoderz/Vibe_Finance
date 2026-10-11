@@ -42,7 +42,7 @@ sizes. Refreshes every second. *Modules: MarketData, Core.*
 
 ### Indicator Explorer
 
-Browse all 144 entries of the indicator catalogue by category or search, adjust each parameter
+Browse all 248 entries of the indicator catalogue by category or search, adjust each parameter
 with a slider and see the result as a price overlay or in its own pane, with the latest values.
 *Module: TimeSeries.*
 

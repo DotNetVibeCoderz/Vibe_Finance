@@ -71,7 +71,32 @@ Multi-output indicators return named tuples. Also available, among others: `Wma`
 `UltimateOscillator`, `AwesomeOscillator`, `WilliamsR`, `StochRsi`, `Obv`, `Vwap`, `Mfi`, `Cmf`,
 `ChaikinOscillator`, `ForceIndex`, `EaseOfMovement`, `Vpt`, `Nvi`, `Pvi`, `PivotPoints`,
 `HeikinAshi`, `LinearRegression`, `ZScore`, `Hurst`, `UlcerIndex` and several range-based
-volatility estimators (Parkinson, Garman-Klass, Rogers-Satchell).
+volatility estimators (Parkinson, Garman-Klass, Rogers-Satchell, Yang-Zhang).
+
+The v0.2 additions cover:
+
+- **Cycles (Ehlers)**: `HilbertTransform` (dominant period and phase, phasor, sine / lead sine,
+  instantaneous trendline, trend-vs-cycle mode), `Mama` (MAMA/FAMA), `SuperSmoother`, `HighPass`,
+  `RoofingFilter`, `Decycler`, `LaguerreRsi`, `InstantaneousTrendline`, `CenterOfGravity`.
+- **Trend**: `Frama`, `SineWma`, `GeometricMa`, `Ehma`, Bill Williams' `Alligator`, `Gator` and
+  `Fractals`, `ZigZag`, `Vhf`, `EfficiencyRatio`, `TrendIntensity`, `Pfe`, `RandomWalkIndex`.
+- **Momentum**: `DirectionalMovement` (+DM/−DM), `RocFraction`, `Pmo`, `Rmi`, `Smi`, `Inertia`,
+  `PsychologicalLine`, `IntradayMomentum`, `PrettyGoodOscillator`, `ForecastOscillator`, `Bias`,
+  `DoubleSmoothedStochastic`, `WaveTrend`, `Kdj`, `WilliamsAd`, `Squeeze`.
+- **Volatility**: `YangZhangVolatility`, `EwmaVolatility`, `RelativeVolatilityIndex`, `Starc`,
+  `AccelerationBands`, `StandardErrorBands`, `AverageRange`.
+- **Volume**: `TwiggsMoneyFlow`, `MarketFacilitation`, `VolumeZoneOscillator`, `RelativeVolume`,
+  `VwMacd`, `Vpci`, and rolling `VolumeProfile` / `MarketProfile` (TPO) with point of control and
+  70% value area.
+- **Statistics**: `RSquared`, `StandardError`, `MeanAbsoluteDeviation`, `BarsSinceExtreme`,
+  `Entropy`, `Autocorrelation`, `CoefficientOfVariation`, `RollingQuantile`, `RollingSharpe`,
+  `Drawdown`, `LogReturn`.
+
+```csharp
+var ht = Ta.HilbertTransform(close);                // DominantPeriod, DominantPhase, Sine, LeadSine, Trendline, TrendMode, ...
+var (mama, fama) = Ta.Mama(close);
+var vp = Ta.VolumeProfile(frame.High, frame.Low, frame.Volume, period: 50);   // PointOfControl, ValueAreaHigh, ValueAreaLow
+```
 
 ### Candlestick patterns
 
@@ -80,8 +105,9 @@ int[] engulfing = Candlesticks.Detect(bars, CandlePattern.BullishEngulfing);  //
 var hits = Candlesticks.Scan(bars);             // every (Index, Pattern, Signal) found
 ```
 
-33 patterns are implemented, from `Doji` and `Hammer` to `ThreeWhiteSoldiers` and
-`RisingThreeMethods`.
+60 patterns are implemented, from `Doji` and `Hammer` to `ThreeWhiteSoldiers`, `RisingThreeMethods`,
+`BullishAbandonedBaby`, `ThreeLineStrike`, `UpsideTasukiGap` and `AdvanceBlock`. Signals follow TA-Lib:
++100 bullish, −100 bearish, marked on the bar that completes the pattern.
 
 ### Streaming indicators
 
@@ -105,7 +131,7 @@ Available: `StreamingSma`, `StreamingEma`, `StreamingRsi`, `StreamingAtr`, `Stre
 what the Gallery's Indicator Explorer enumerates.
 
 ```csharp
-Console.WriteLine(IndicatorCatalog.Count);                       // 144
+Console.WriteLine(IndicatorCatalog.Count);                       // 248
 foreach (var d in IndicatorCatalog.ByCategory(IndicatorCategory.Momentum))
     Console.WriteLine($"{d.Id,-12} {d.Name} ({string.Join(", ", d.Parameters.Select(p => $"{p.Name}={p.Default}"))})");
 
@@ -120,9 +146,12 @@ Pattern ids look like `CDL_BULLISHENGULFING`.
 
 ## Notes and limitations
 
-- The catalogue holds **144 entries: 111 indicators plus 33 candlestick patterns**. The design
-  target is 200+; the remainder (Hilbert-transform family, more patterns, volume profile) is on the
-  roadmap.
+- The catalogue holds **248 entries: 188 indicators plus 60 candlestick patterns**, in eight
+  categories (Trend, Momentum, Volatility, Volume, Statistics, PriceTransform, Pattern, Cycle).
+- The Hilbert-transform family follows TA-Lib's formulation; values differ from TA-Lib only during
+  warm-up (the first 50 bars are NaN here, TA-Lib discards a fixed 63-bar lookback).
+- `ZigZag` is drawn with hindsight (the last leg repaints) — a chart aid, not a signal. `Fractals`
+  and the `Alligator` are reported on the bar that confirms them, so they never look ahead.
 - `Returns.Sharpe` returns 0 when the standard deviation is below 1e-12 (a constant series), rather
   than an enormous ratio from floating-point residue.
 

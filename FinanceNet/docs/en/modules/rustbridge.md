@@ -39,8 +39,9 @@ RustAccelerator.ForceManaged = true;                 // or env FINANCE_NATIVE_DI
 ```
 
 Search order: the `FINANCE_NATIVE_PATH` environment variable, next to the assembly, then
-`runtimes/{rid}/native`. The NuGet package carries the Windows x64 binary under
-`runtimes/win-x64/native` (`.so` → linux-x64 and `.dylib` → osx-arm64 when built on those systems).
+`runtimes/{rid}/native`. The NuGet package carries all three binaries, built by CI on each OS:
+`runtimes/win-x64/native/finance_native.dll`, `runtimes/linux-x64/native/libfinance_native.so` and
+`runtimes/osx-arm64/native/libfinance_native.dylib`.
 
 ## API
 
@@ -88,8 +89,8 @@ references RustBridge.
 - Rust is a clear win only where the work is heavy per element or parallel: historical VaR (~2.6×)
   and multi-threaded Monte Carlo. Simple indicators and Black-Scholes run about as fast in managed
   .NET — see [Benchmarks](../benchmarks.md).
-- Only the win-x64 binary was built and packed on the development machine; Linux/macOS binaries are
-  packed when the crate is built on those platforms.
+- Other platforms (linux-arm64, osx-x64, win-arm64) have no native binary yet and use the managed
+  fallback, which gives identical results.
 
 ---
 

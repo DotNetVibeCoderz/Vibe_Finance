@@ -117,6 +117,7 @@ Unit tests never touch the network. A few *live* tests are skipped unless you op
 | `FINANCENET_LIVE=1` | Real Yahoo Finance and Binance requests (`Finance.Data.Tests`) |
 | `FINANCENET_LLM_KEYFILE=<path>` | Real chat-completion and tool-calling calls (`Finance.AI.Tests`) |
 | `FINANCENET_HF_TOKENFILE=<path>` | Hugging Face FinBERT inference (`Finance.AI.Tests`) |
+| `FINANCENET_FINBERT_LOCAL=1` | Local FinBERT through HF.Net; downloads ProsusAI/finbert (~440 MB) once (`Finance.AI.Tests`) |
 
 Hugging Face's hosted inference returns HTTP 402 when the account has no inference credits; the
 FinBERT live test reports that and skips.

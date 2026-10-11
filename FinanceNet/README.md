@@ -41,7 +41,7 @@
 | `Gravicode.Finance.Core` | Bars, ticks, quotes, L2 order book, orders/fills/positions, instruments, money, day counts, tenors, business calendars (NYSE, IDX), reproducible RNG, synthetic markets |
 | `Gravicode.Finance.Math` | SIMD statistics, covariance & Ledoit-Wolf, dense matrices (Cholesky, LU, eigen via GraviNum), normal / Student-t, Brent & Newton, projected-gradient / Nelder-Mead, splines, OLS / ridge |
 | `Gravicode.Finance.DataFrame` | Columnar OHLCV frames, CSV, resampling, aligned multi-asset price panels, GraviFrame interop |
-| `Gravicode.Finance.TimeSeries` | Returns, drawdowns, O(n) rolling statistics, **144-entry indicator catalogue** (111 indicators + 33 candlestick patterns), streaming indicators |
+| `Gravicode.Finance.TimeSeries` | Returns, drawdowns, O(n) rolling statistics, **248-entry indicator catalogue** (188 indicators incl. Ehlers/Hilbert cycles and volume profile + 60 candlestick patterns), streaming indicators |
 | `Gravicode.Finance.MarketData` | Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, CSV, synthetic; caching, rate limiting, WebSocket streaming, economic calendar, fundamentals |
 | `Gravicode.Finance.AlternativeData` | Social media (Reddit) sentiment & buzz, ESG analytics (WACI), supply-chain graphs (PageRank, shock contagion), weather (Open-Meteo, HDD/CDD) |
 | `Gravicode.Finance.Pricing` | Black-Scholes-Merton + full Greeks, implied vol, Black-76, Bachelier, CRR/trinomial trees, Monte Carlo (Asian, barrier, lookback), Heston, SABR, vol surfaces, curve bootstrapping, Nelson-Siegel-Svensson, bonds, FRNs, swaps, swaptions, forwards, CDS, structured notes, autocallables |
@@ -51,6 +51,7 @@
 | `Gravicode.Finance.Execution` | OMS, paper broker, FIX 4.4 engine & session layer, Binance & Interactive Brokers adapters, TWAP / VWAP / POV / Iceberg, smart order routing, pre-trade risk, TCA |
 | `Gravicode.Finance.ML` | Feature engineering, triple-barrier labelling, fractional differentiation, purged CV, linear/logistic/trees/forests/boosting, AR/ARIMA/Holt-Winters, Q-learning + **RLNet DQN/PPO** trading agents, factor models, Alphalens-style research, Kernel SHAP, PDP/ICE |
 | `Gravicode.Finance.LLM` | OpenAI, Azure OpenAI, Anthropic, Ollama, Hugging Face clients; streaming; tool calling; `FinancialAssistant` agent loop; FinGPT-style tasks; FinBERT |
+| `Gravicode.Finance.LLM.Local` | **Local FinBERT** run in-process through HF.Net — no hosted API or credits (separate so `Finance.LLM` stays dependency-free) |
 | `Gravicode.Finance.NewsAnalytics` | RSS/Atom, finance sentiment lexicon, ticker/entity extraction, event classification, MinHash de-duplication, earnings-call analysis |
 | `Gravicode.Finance.Visualization` | Dependency-free SVG charts (candles, lines, frontier, heatmaps, histograms) and self-contained HTML tearsheets |
 | `Gravicode.Finance.GPU` | ILGPU (CUDA / OpenCL / CPU) Monte Carlo pricing, batch Black-Scholes, Monte Carlo VaR |
@@ -106,7 +107,7 @@ An Avalonia desktop app with eleven live modules (`dotnet run --project samples/
 | | |
 |---|---|
 | ![Live market](docs/screenshots/01-live-market-dashboard.png) **Live Market Dashboard** — Binance watchlist, 1-minute candles, EMA/RSI | ![Order book](docs/screenshots/02-order-book-viewer.png) **Order Book Viewer** — L2 ladder, depth, imbalance, sweep cost |
-| ![Indicators](docs/screenshots/03-indicator-explorer.png) **Indicator Explorer** — the whole 144-entry catalogue, live parameters | ![Portfolio](docs/screenshots/04-portfolio-optimizer.png) **Portfolio Optimizer** — 10 methods, frontier, risk contributions |
+| ![Indicators](docs/screenshots/03-indicator-explorer.png) **Indicator Explorer** — the whole 248-entry catalogue, live parameters | ![Portfolio](docs/screenshots/04-portfolio-optimizer.png) **Portfolio Optimizer** — 10 methods, frontier, risk contributions |
 | ![VaR](docs/screenshots/05-var-explorer.png) **VaR Explorer** — five VaR methods, backtests, stress, Monte Carlo fan | ![Greeks](docs/screenshots/06-greeks-explorer.png) **Greeks Explorer** — BSM vs trees vs Monte Carlo |
 | ![Strategy builder](docs/screenshots/07-strategy-builder.png) **Strategy Builder** — no-code rules → backtest → generated C# | ![Backtesting](docs/screenshots/08-backtesting-studio.png) **Backtesting Studio** — built-in strategies, costs, walk-forward |
 | ![AI assistant](docs/screenshots/09-ai-financial-assistant.png) **AI Financial Assistant** — tool-calling LLM over Finance.Net functions | ![News](docs/screenshots/10-news-intelligence.png) **News Intelligence** — live RSS, sentiment, events |
@@ -143,7 +144,6 @@ Requirements: .NET 10 SDK; optional Rust 1.80+ for native kernels; optional CUDA
 
 ## Honest limitations
 
-- The indicator catalogue has 144 entries; the 200+ target is on the [roadmap](PLAN.md).
 - ILGPU has no DirectML or Vulkan backend — `Finance.GPU` reports those as unavailable; AMD (ROCm-class)
   GPUs are reached through OpenCL.
 - Historical stress scenarios use stylised, rounded shocks for illustration, not regulatory use.

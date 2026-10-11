@@ -42,7 +42,7 @@ flowchart TB
         Core[Finance.Core<br/>bars, orders, calendars, RNG]
         Math[Finance.Math<br/>stats, matrices, optimisers]
         DF[Finance.DataFrame<br/>OHLCV frames, panels]
-        TS[Finance.TimeSeries<br/>returns, rolling, 144 indicators]
+        TS[Finance.TimeSeries<br/>returns, rolling, 248 indicators]
     end
     subgraph Data
         MD[Finance.MarketData<br/>Yahoo, Binance, Coinbase, AV, Polygon]
@@ -92,7 +92,7 @@ All packages target `net10.0`. NuGet IDs follow the pattern `Gravicode.<ProjectN
 | `Gravicode.Finance.Core` | Bars, ticks, quotes, orders, fills, positions, order books, calendars, day counts, deterministic RNG, synthetic markets |
 | `Gravicode.Finance.Math` | SIMD statistics, dense matrices (GraviNum interop), normal/Student-t distributions, root finding, optimisers, interpolation, regression |
 | `Gravicode.Finance.DataFrame` | Columnar OHLCV frames, aligned price panels, CSV, GraviFrame interop |
-| `Gravicode.Finance.TimeSeries` | Returns, drawdowns, O(n) rolling statistics, 144-entry indicator catalogue, streaming indicators |
+| `Gravicode.Finance.TimeSeries` | Returns, drawdowns, O(n) rolling statistics, 248-entry indicator catalogue, streaming indicators |
 | `Gravicode.Finance.MarketData` | Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, CSV and synthetic providers; streaming; economic and fundamental data |
 | `Gravicode.Finance.AlternativeData` | Social-media sentiment, ESG analytics, supply-chain graphs, weather analytics |
 | `Gravicode.Finance.Pricing` | Black-Scholes, Black-76, Bachelier, trees, Monte Carlo, Heston, SABR, curves, bonds, swaps, swaptions, CDS, structured notes |
@@ -102,6 +102,7 @@ All packages target `net10.0`. NuGet IDs follow the pattern `Gravicode.<ProjectN
 | `Gravicode.Finance.Execution` | OMS, paper/Binance/Interactive Brokers brokers, FIX 4.4, TWAP/VWAP/POV/Iceberg, smart order routing, TCA |
 | `Gravicode.Finance.ML` | Trees, forests, boosting, linear models, labelling, purged CV, forecasting, RL (incl. RLNet), factor research, SHAP |
 | `Gravicode.Finance.LLM` | OpenAI, Azure OpenAI, Anthropic, Ollama and Hugging Face clients; tool-calling assistant; FinBERT |
+| `Gravicode.Finance.LLM.Local` | FinBERT run locally through HF.Net (no API, no credits) |
 | `Gravicode.Finance.NewsAnalytics` | RSS reader, finance lexicon sentiment, entity and event extraction, MinHash de-duplication, earnings calls |
 | `Gravicode.Finance.Visualization` | Dependency-free SVG charts and self-contained HTML tearsheets |
 | `Gravicode.Finance.GPU` | ILGPU Monte Carlo pricing, batch Black-Scholes, Monte Carlo VaR |

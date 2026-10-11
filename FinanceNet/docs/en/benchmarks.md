@@ -48,8 +48,46 @@ Timings from separate runs are not comparable on this machine; only compare numb
 dotnet run -c Release --project benchmarks/Finance.Benchmarks -- --filter *
 ```
 
-The BenchmarkDotNet suites compile; their results have not been published yet — the table above
-comes from `--quick`.
+Measured 2026-10-11 with BenchmarkDotNet 0.15.8 (default job) on the same laptop: Intel Core
+i7-8650U (4 cores / 8 threads, 15 W, Kaby Lake R), Windows 11, .NET 10.0.12 x64 RyuJIT, integrated
+Intel UHD 620 for the GPU rows. Each suite ran in one process; the laptop throttles, so the error
+columns are wide and only ratios within one table are meaningful.
+
+**Indicators** (managed vs Rust, one array of N prices, zero allocations on both sides):
+
+| Method | N = 100,000 | N = 1,000,000 |
+|---|---:|---:|
+| SMA(20) managed | 294 µs | 3.42 ms |
+| SMA(20) Rust | 269 µs | 3.32 ms |
+| EMA(20) managed | 367 µs | 4.79 ms |
+| EMA(20) Rust | 383 µs | 4.41 ms |
+| RSI(14) managed | 988 µs | 12.05 ms |
+| RSI(14) Rust | 918 µs | 11.39 ms |
+
+**Pricing** (1,000,000 Black-Scholes prices + deltas; Monte Carlo European call, 2,000,000 paths):
+
+| Method | Mean | Allocated |
+|---|---:|---:|
+| Black-Scholes batch, managed | 121.4 ms | 0 |
+| Black-Scholes batch, Rust | 115.2 ms | 0 |
+| Black-Scholes batch, GPU | 85.9 ms | 152 MB (result arrays) |
+| Monte Carlo, managed (parallel) | 28.9 ms | 8 KB |
+| Monte Carlo, Rust (parallel) | 31.6 ms | 0 |
+| Monte Carlo, GPU | 12.9 ms | 1 MB |
+
+**Risk** (historical VaR/ES at 99% over 1,000,000 returns):
+
+| Method | Mean | Allocated |
+|---|---:|---:|
+| Historical VaR, managed | 15.05 ms | 8 MB (sort buffer) |
+| Historical VaR, Rust | 6.23 ms | 0 |
+
+What the full suites confirm: Rust is **2.4× faster for historical VaR** (selection instead of a
+full sort, no allocation); simple indicators and Black-Scholes are within noise of the managed
+code, which is already vectorised by RyuJIT. The integrated GPU is **2.2× faster for Monte Carlo**
+and 1.4× for batch Black-Scholes (where copying the inputs over dominates). In this run, unlike
+the `--quick` table, managed and Rust Monte Carlo are tied: both use the same 64 fixed RNG streams
+and the difference is within the throttling noise.
 
 ---
 

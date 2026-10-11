@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Finance.LLM.Local</RootNamespace>
+    <Description>Finance.Net local model inference: FinBERT financial sentiment run in-process through HF.Net (Gravicode.HFNet.GraviTransformers) — no hosted API or credits. Kept apart from Gravicode.Finance.LLM so the HTTP clients stay dependency-free. Dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil.</Description>
+  </PropertyGroup>
+
+  <!-- HF.Net brings SixLabors.ImageSharp 3.1.12; see the NuGetAuditSuppress note in Directory.Build.props. -->
+  <ItemGroup>
+    <ProjectReference Include="../Finance.LLM/Finance.LLM.csproj" />
+    <PackageReference Include="Gravicode.HFNet.GraviTransformers" />
+  </ItemGroup>
+
+</Project>

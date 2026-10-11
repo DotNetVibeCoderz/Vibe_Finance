@@ -22,7 +22,7 @@ semua notebook — begitulah notebook dijaga agar tetap berfungsi.
 | # | Notebook | Yang dipelajari |
 |---|---|---|
 | 01 | `01_Market_Data.dib` | Bar dan frame OHLCV, simpan-baca CSV, panel multi-aset, provider, opsional data live |
-| 02 | `02_Indicators.dib` | Katalog 144 entri, indikator tren/momentum/volatilitas, pola candlestick, indikator streaming, akselerasi Rust |
+| 02 | `02_Indicators.dib` | Katalog 248 entri, indikator tren/momentum/volatilitas, pola candlestick, indikator streaming, akselerasi Rust |
 | 03 | `03_Portfolio.dib` | Estimator return dan risiko, mean-variance dan frontier, Black-Litterman, portofolio berbasis risiko, CVaR, alokasi diskrit |
 | 04 | `04_Risk.dib` | Return berekor tebal, VaR dan ES, backtesting VaR, model volatilitas, atribusi risiko portofolio, laporan kinerja |
 | 05 | `05_Options.dib` | Black-Scholes-Merton dan Greeks, exercise lebih awal, eksotik Monte Carlo, volatilitas stokastik dan smile, Monte Carlo GPU |

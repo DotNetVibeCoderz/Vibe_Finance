@@ -72,7 +72,32 @@ Indikator dengan beberapa keluaran mengembalikan tuple bernama. Tersedia juga, a
 `Cmo`, `Dpo`, `UltimateOscillator`, `AwesomeOscillator`, `WilliamsR`, `StochRsi`, `Obv`, `Vwap`,
 `Mfi`, `Cmf`, `ChaikinOscillator`, `ForceIndex`, `EaseOfMovement`, `Vpt`, `Nvi`, `Pvi`,
 `PivotPoints`, `HeikinAshi`, `LinearRegression`, `ZScore`, `Hurst`, `UlcerIndex`, serta beberapa
-estimator volatilitas berbasis rentang (Parkinson, Garman-Klass, Rogers-Satchell).
+estimator volatilitas berbasis rentang (Parkinson, Garman-Klass, Rogers-Satchell, Yang-Zhang).
+
+Tambahan v0.2 mencakup:
+
+- **Siklus (Ehlers)**: `HilbertTransform` (periode dan fase siklus dominan, phasor, sine / lead sine,
+  trendline instan, mode tren-vs-siklus), `Mama` (MAMA/FAMA), `SuperSmoother`, `HighPass`,
+  `RoofingFilter`, `Decycler`, `LaguerreRsi`, `InstantaneousTrendline`, `CenterOfGravity`.
+- **Tren**: `Frama`, `SineWma`, `GeometricMa`, `Ehma`, `Alligator`, `Gator` dan `Fractals` dari
+  Bill Williams, `ZigZag`, `Vhf`, `EfficiencyRatio`, `TrendIntensity`, `Pfe`, `RandomWalkIndex`.
+- **Momentum**: `DirectionalMovement` (+DM/−DM), `RocFraction`, `Pmo`, `Rmi`, `Smi`, `Inertia`,
+  `PsychologicalLine`, `IntradayMomentum`, `PrettyGoodOscillator`, `ForecastOscillator`, `Bias`,
+  `DoubleSmoothedStochastic`, `WaveTrend`, `Kdj`, `WilliamsAd`, `Squeeze`.
+- **Volatilitas**: `YangZhangVolatility`, `EwmaVolatility`, `RelativeVolatilityIndex`, `Starc`,
+  `AccelerationBands`, `StandardErrorBands`, `AverageRange`.
+- **Volume**: `TwiggsMoneyFlow`, `MarketFacilitation`, `VolumeZoneOscillator`, `RelativeVolume`,
+  `VwMacd`, `Vpci`, serta `VolumeProfile` / `MarketProfile` (TPO) bergulir dengan point of control
+  dan value area 70%.
+- **Statistik**: `RSquared`, `StandardError`, `MeanAbsoluteDeviation`, `BarsSinceExtreme`,
+  `Entropy`, `Autocorrelation`, `CoefficientOfVariation`, `RollingQuantile`, `RollingSharpe`,
+  `Drawdown`, `LogReturn`.
+
+```csharp
+var ht = Ta.HilbertTransform(close);                // DominantPeriod, DominantPhase, Sine, LeadSine, Trendline, TrendMode, ...
+var (mama, fama) = Ta.Mama(close);
+var vp = Ta.VolumeProfile(frame.High, frame.Low, frame.Volume, period: 50);   // PointOfControl, ValueAreaHigh, ValueAreaLow
+```
 
 ### Pola candlestick
 
@@ -81,7 +106,9 @@ int[] engulfing = Candlesticks.Detect(bars, CandlePattern.BullishEngulfing);  //
 var hits = Candlesticks.Scan(bars);             // semua (Index, Pattern, Signal) yang ditemukan
 ```
 
-Tersedia 33 pola, dari `Doji` dan `Hammer` hingga `ThreeWhiteSoldiers` dan `RisingThreeMethods`.
+Tersedia 60 pola, dari `Doji` dan `Hammer` hingga `ThreeWhiteSoldiers`, `RisingThreeMethods`,
+`BullishAbandonedBaby`, `ThreeLineStrike`, `UpsideTasukiGap` dan `AdvanceBlock`. Sinyal mengikuti
+TA-Lib: +100 bullish, −100 bearish, ditandai pada bar yang melengkapi pola.
 
 ### Indikator streaming
 
@@ -106,7 +133,7 @@ Tersedia: `StreamingSma`, `StreamingEma`, `StreamingRsi`, `StreamingAtr`, `Strea
 seragam — inilah yang ditampilkan oleh Indicator Explorer di Gallery.
 
 ```csharp
-Console.WriteLine(IndicatorCatalog.Count);                       // 144
+Console.WriteLine(IndicatorCatalog.Count);                       // 248
 foreach (var d in IndicatorCatalog.ByCategory(IndicatorCategory.Momentum))
     Console.WriteLine($"{d.Id,-12} {d.Name} ({string.Join(", ", d.Parameters.Select(p => $"{p.Name}={p.Default}"))})");
 
@@ -122,8 +149,12 @@ grafik harga atau di panel tersendiri), dan `Parameters` (`Name`, `Default`, `Mi
 
 ## Catatan dan batasan
 
-- Katalog berisi **144 entri: 111 indikator ditambah 33 pola candlestick**. Target di desain adalah
-  200+; sisanya (keluarga Hilbert transform, pola tambahan, volume profile) ada di roadmap.
+- Katalog berisi **248 entri: 188 indikator ditambah 60 pola candlestick**, dalam delapan kategori
+  (Trend, Momentum, Volatility, Volume, Statistics, PriceTransform, Pattern, Cycle).
+- Keluarga Hilbert transform mengikuti formulasi TA-Lib; nilainya berbeda dari TA-Lib hanya pada masa
+  pemanasan (50 bar pertama NaN di sini, TA-Lib membuang lookback tetap 63 bar).
+- `ZigZag` digambar dengan hindsight (kaki terakhir bisa berubah) — alat bantu grafik, bukan sinyal.
+  `Fractals` dan `Alligator` dilaporkan pada bar yang mengonfirmasinya, sehingga tidak melihat ke depan.
 - `Returns.Sharpe` mengembalikan 0 jika simpangan baku di bawah 1e-12 (deret konstan), alih-alih rasio
   raksasa akibat sisa floating-point.
 

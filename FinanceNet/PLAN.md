@@ -25,8 +25,8 @@ Spesifikasi acuan adalah [solution-design.md](solution-design.md). Status harian
 
 ## v0.2 — Depth / Kedalaman
 
-- **Indicators**: close the gap to the 200+ target in the design (Hilbert-transform family, more
-  candlestick patterns, volume profile, market-profile TPO).
+- ✅ **Indicators**: 248-entry catalogue — Hilbert-transform family and Ehlers filters, 60
+  candlestick patterns, rolling volume profile and market-profile TPO (done 2026-10-11).
 - **Pricing**: local volatility (Dupire) surfaces, Hull-White / G2++ short-rate models, Bermudan
   swaptions via LSMC, inflation and cross-currency swaps, ISDA-standard CDS (full CS01 conventions).
 - **Risk**: filtered historical simulation, EVT (peaks-over-threshold) VaR, liquidity-adjusted VaR,
@@ -45,7 +45,7 @@ Spesifikasi acuan adalah [solution-design.md](solution-design.md). Status harian
 
 ## v0.4 — Financial AI / AI Keuangan
 
-- Local FinBERT inference through HF.Net (Gravicode.HFNet.GraviTransformers) instead of the hosted
+- ✅ Local FinBERT inference through HF.Net (Gravicode.HFNet.GraviTransformers) instead of the hosted
   Inference API.
 - PPO/SAC portfolio agents on Gravicode.RLNet with GPU training (Gravicode.RLNet.Gpu).
 - Retrieval-augmented filings Q&A (10-K/10-Q, IDX annual reports) with citation checking.
@@ -56,7 +56,7 @@ Spesifikasi acuan adalah [solution-design.md](solution-design.md). Status harian
 - DirectML and Vulkan compute backends (ILGPU has neither today; needs a separate kernel path).
 - ROCm/HIP native backend (today AMD GPUs are reached through OpenCL).
 - Rust kernels for the full indicator catalogue and for HRP clustering; SIMD (AVX-512) paths.
-- Publish native binaries for linux-x64, osx-arm64 alongside win-x64.
+- ✅ Publish native binaries for linux-x64, osx-arm64 alongside win-x64 (since 0.1.0, built in CI).
 
 ## Always / Selalu
 

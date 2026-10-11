@@ -23,7 +23,7 @@ is how they are kept working.
 | # | Notebook | What you learn |
 |---|---|---|
 | 01 | `01_Market_Data.dib` | Bars and OHLCV frames, CSV round trip, multi-asset panels, providers, optional live data |
-| 02 | `02_Indicators.dib` | The 144-entry catalogue, trend/momentum/volatility indicators, candlestick patterns, streaming indicators, Rust acceleration |
+| 02 | `02_Indicators.dib` | The 248-entry catalogue, trend/momentum/volatility indicators, candlestick patterns, streaming indicators, Rust acceleration |
 | 03 | `03_Portfolio.dib` | Return and risk estimators, mean-variance and the frontier, Black-Litterman, risk-based portfolios, CVaR, discrete allocation |
 | 04 | `04_Risk.dib` | Fat-tailed returns, VaR and ES, VaR backtesting, volatility models, portfolio risk attribution, performance report |
 | 05 | `05_Options.dib` | Black-Scholes-Merton and Greeks, early exercise, Monte Carlo exotics, stochastic volatility and smiles, GPU Monte Carlo |

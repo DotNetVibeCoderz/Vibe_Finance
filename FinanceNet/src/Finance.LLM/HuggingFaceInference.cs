@@ -69,16 +69,17 @@ public sealed class FinBertSentiment(HuggingFaceInference client, string model =
 {
     /// <summary>Sentiment of one text; score = P(positive) − P(negative) in [-1, 1].</summary>
     public async Task<SentimentResult> AnalyzeAsync(string text, CancellationToken cancellationToken = default)
-        => ToResult(await client.ClassifyAsync(model, text, cancellationToken).ConfigureAwait(false));
+        => FromScores(await client.ClassifyAsync(model, text, cancellationToken).ConfigureAwait(false));
 
     /// <summary>Sentiment of several texts in one request.</summary>
     public async Task<IReadOnlyList<SentimentResult>> AnalyzeBatchAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken = default)
-        => (await client.ClassifyBatchAsync(model, texts, cancellationToken).ConfigureAwait(false)).Select(ToResult).ToList();
+        => (await client.ClassifyBatchAsync(model, texts, cancellationToken).ConfigureAwait(false)).Select(s => FromScores(s)).ToList();
 
-    internal static SentimentResult ToResult(IReadOnlyList<LabelScore> scores)
+    /// <summary>Maps FinBERT class probabilities to a <see cref="SentimentResult"/> (shared with the local runner in Finance.LLM.Local).</summary>
+    public static SentimentResult FromScores(IReadOnlyList<LabelScore> scores, string source = "FinBERT")
     {
         double P(string l) => scores.FirstOrDefault(s => s.Label.Equals(l, StringComparison.OrdinalIgnoreCase)).Score;
         var top = scores.Count > 0 ? scores[0] : new LabelScore("neutral", 1);
-        return new SentimentResult(top.Label.ToLowerInvariant(), P("positive") - P("negative"), top.Score, "FinBERT");
+        return new SentimentResult(top.Label.ToLowerInvariant(), P("positive") - P("negative"), top.Score, source);
     }
 }

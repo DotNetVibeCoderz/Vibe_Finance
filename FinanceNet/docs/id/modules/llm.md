@@ -104,12 +104,42 @@ SentimentResult fs = await finbert.AnalyzeAsync("Revenue grew 25% year over year
 IReadOnlyList<LabelScore> raw = await hfClient.ClassifyAsync("ProsusAI/finbert", "Shares plunged after the downgrade.");
 ```
 
+## FinBERT lokal (tanpa API, tanpa kredit)
+
+Paket `Gravicode.Finance.LLM.Local` menjalankan FinBERT di dalam proses lewat HF.Net
+(`Gravicode.HFNet.GraviTransformers`). Paketnya dipisah agar `Gravicode.Finance.LLM` tetap tanpa
+dependensi berat.
+
+```csharp
+using Finance.LLM.Local;
+
+using var finbert = LocalFinBertSentiment.Load();               // ProsusAI/finbert, ~440 MB, diunduh sekali
+SentimentResult s = finbert.Analyze("Operating profit rose to EUR 13.1 mn from EUR 8.7 mn.");
+// s.Label = "positive", s.Score = P(positive) − P(negative) = 0.92, s.Source = "FinBERT (local)"
+IReadOnlyList<LabelScore> all = finbert.Classify("Quarterly profit fell sharply.");
+
+// Pasang ke pipeline berita:
+var model = new DelegateSentimentModel("FinBERT", async (text, ct) =>
+{
+    var r = await finbert.AnalyzeAsync(text, ct);
+    return (r.Label, r.Score);
+});
+```
+
+Checkpoint disimpan di cache Hugging Face bersama (`HF_HUB_CACHE` / `HF_HOME`), sehingga Python dan
+.NET berbagi satu salinan. `LocalFinBertSentiment.Open(dir)` membaca folder lokal. Hasil ukur di laptop
+4 core: sekitar **100 ms per kalimat**. Branch `main` ProsusAI/finbert hanya berisi
+`pytorch_model.bin` legacy (pra-torch-1.6) yang belum bisa dibaca HF.Net 0.8.0, jadi `Load()` memakai
+konversi safetensors yang diterbitkan bot resmi Hugging Face (`refs/pr/29`, tersedia sebagai
+`DefaultModelRevision`); kedua file memberi probabilitas yang identik.
+
 ## Catatan dan batasan
 
 - **Status live**: jalur Azure OpenAI (chat, loop tool-calling, sentimen JSON) sudah diverifikasi pada
   deployment sungguhan. Panggilan **FinBERT Hugging Face** berhasil diautentikasi, tetapi API hosted
   menjawab **HTTP 402 — kredit inferensi habis** pada akun uji; perlu kredit prabayar atau HF PRO.
-  FinBERT lokal lewat HF.Net/ONNX ada di roadmap.
+  **FinBERT lokal** (`Finance.LLM.Local`, di atas) tidak memerlukan keduanya dan sudah diverifikasi
+  dengan model aslinya.
 - Jika key file mencantumkan beberapa deployment di `model:`, yang pertama dipakai.
 - Jangan pernah meng-commit key file; `LlmSettings.ToString()` menyamarkan kunci untuk log.
 - Asisten tidak memberikan saran investasi personal (dinyatakan di system prompt bawaannya,

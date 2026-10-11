@@ -43,7 +43,7 @@ jobs:
           - { rid: linux-x64, os: ubuntu-latest,  file: libfinance_native.so }
           - { rid: osx-arm64, os: macos-latest,   file: libfinance_native.dylib }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo test
         working-directory: FinanceNet/native/finance-native
@@ -51,7 +51,7 @@ jobs:
       - name: cargo build
         working-directory: FinanceNet/native/finance-native
         run: cargo build --release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.rid }}
           path: FinanceNet/native/finance-native/target/release/${{ matrix.file }}
@@ -66,11 +66,11 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: native-*
           merge-multiple: true
@@ -88,11 +88,11 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: native-*
           merge-multiple: true
@@ -113,7 +113,7 @@ jobs:
           for f in runtimes/win-x64/native/finance_native.dll runtimes/linux-x64/native/libfinance_native.so runtimes/osx-arm64/native/libfinance_native.dylib; do
             unzip -l "$pkg" | grep -q "$f" || { echo "::error::$f missing from $pkg"; exit 1; }
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: financenet-packages
           path: FinanceNet/artifacts/packages/*

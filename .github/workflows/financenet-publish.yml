@@ -1,4 +1,4 @@
-# Publish the 17 Gravicode.Finance.* packages to nuget.org.
+# Publish the 18 Gravicode.Finance.* packages to nuget.org.
 #
 # Tags are prefixed `financenet-v` (e.g. financenet-v0.1.0) because this is a monorepo: a bare `v0.1.0`
 # would fire for any project in Vibe_Finance. Nothing is pushed until the full CI run — reused here, not
@@ -62,11 +62,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: financenet-packages
           path: packages
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
       - name: Push to nuget.org
@@ -78,7 +78,7 @@ jobs:
           v="${{ needs.version.outputs.version }}"
           # Dependency order, so a consumer never sees a package whose dependency is still missing.
           for id in Core Math DataFrame TimeSeries MarketData AlternativeData Pricing Risk Portfolio Backtesting \
-                    Execution ML LLM NewsAnalytics Visualization GPU RustBridge; do
+                    Execution ML LLM LLM.Local NewsAnalytics Visualization GPU RustBridge; do
             # One explicit .nupkg: `dotnet nuget push` sends the matching .snupkg itself.
             dotnet nuget push "packages/Gravicode.Finance.$id.$v.nupkg" \
               --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate

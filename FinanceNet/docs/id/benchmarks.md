@@ -49,8 +49,46 @@ Waktu dari run yang berbeda tidak bisa dibandingkan di mesin ini; bandingkan ang
 dotnet run -c Release --project benchmarks/Finance.Benchmarks -- --filter *
 ```
 
-Suite BenchmarkDotNet sudah bisa dikompilasi, tetapi hasilnya belum dipublikasikan — tabel di atas
-berasal dari `--quick`.
+Diukur 2026-10-11 dengan BenchmarkDotNet 0.15.8 (job default) di laptop yang sama: Intel Core
+i7-8650U (4 core / 8 thread, 15 W, Kaby Lake R), Windows 11, .NET 10.0.12 x64 RyuJIT, Intel UHD 620
+terintegrasi untuk baris GPU. Setiap suite berjalan dalam satu proses; laptop ini mengalami
+throttling, sehingga kolom error lebar dan hanya rasio dalam satu tabel yang bermakna.
+
+**Indikator** (managed vs Rust, satu array berisi N harga, nol alokasi di kedua sisi):
+
+| Metode | N = 100.000 | N = 1.000.000 |
+|---|---:|---:|
+| SMA(20) managed | 294 µs | 3,42 ms |
+| SMA(20) Rust | 269 µs | 3,32 ms |
+| EMA(20) managed | 367 µs | 4,79 ms |
+| EMA(20) Rust | 383 µs | 4,41 ms |
+| RSI(14) managed | 988 µs | 12,05 ms |
+| RSI(14) Rust | 918 µs | 11,39 ms |
+
+**Pricing** (1.000.000 harga + delta Black-Scholes; Monte Carlo call Eropa, 2.000.000 path):
+
+| Metode | Rata-rata | Alokasi |
+|---|---:|---:|
+| Black-Scholes batch, managed | 121,4 ms | 0 |
+| Black-Scholes batch, Rust | 115,2 ms | 0 |
+| Black-Scholes batch, GPU | 85,9 ms | 152 MB (array hasil) |
+| Monte Carlo, managed (paralel) | 28,9 ms | 8 KB |
+| Monte Carlo, Rust (paralel) | 31,6 ms | 0 |
+| Monte Carlo, GPU | 12,9 ms | 1 MB |
+
+**Risiko** (VaR/ES historis 99% atas 1.000.000 return):
+
+| Metode | Rata-rata | Alokasi |
+|---|---:|---:|
+| VaR historis, managed | 15,05 ms | 8 MB (buffer sort) |
+| VaR historis, Rust | 6,23 ms | 0 |
+
+Yang dikonfirmasi suite lengkap: Rust **2,4× lebih cepat untuk VaR historis** (seleksi alih-alih
+sort penuh, tanpa alokasi); indikator sederhana dan Black-Scholes setara dengan kode managed yang
+sudah divektorisasi RyuJIT. GPU terintegrasi **2,2× lebih cepat untuk Monte Carlo** dan 1,4× untuk
+Black-Scholes batch (didominasi penyalinan input). Pada run ini, berbeda dengan tabel `--quick`,
+Monte Carlo managed dan Rust setara: keduanya memakai 64 stream RNG tetap yang sama dan selisihnya
+masih dalam derau throttling.
 
 ---
 

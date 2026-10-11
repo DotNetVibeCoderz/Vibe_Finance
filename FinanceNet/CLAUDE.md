@@ -31,12 +31,13 @@ cd native/finance-native && cargo test
 ```
 
 Live tests are skipped unless enabled: `FINANCENET_LIVE=1` (Yahoo/Binance), `FINANCENET_LLM_KEYFILE=<key file>`
-(Azure OpenAI etc.), `FINANCENET_HF_TOKENFILE=<token file>` (FinBERT). The Gallery's AI page also reads
+(Azure OpenAI etc.), `FINANCENET_HF_TOKENFILE=<token file>` (hosted FinBERT), `FINANCENET_FINBERT_LOCAL=1` (local FinBERT via
+HF.Net, ~440 MB download). The Gallery's AI page also reads
 `FINANCENET_LLM_KEYFILE` / `OPENAI_API_KEY` / `AZURE_OPENAI_*`.
 
 ## Layout
 
-- `src/Finance.*` — 17 libraries, each its own package `Gravicode.<ProjectName>` (set in `Directory.Build.props`
+- `src/Finance.*` — 18 libraries, each its own package `Gravicode.<ProjectName>` (set in `Directory.Build.props`
   for anything under `src/`). Dependencies flow Core → Math → (DataFrame → TimeSeries) → domain modules;
   Backtesting, Portfolio, Execution, LLM, NewsAnalytics deliberately do **not** reference each other — hosts
   wire them together (e.g. the LLM assistant's tools are delegates registered by the Gallery).
@@ -75,7 +76,8 @@ Gravicode.Science.GraviNum/GraviFrame/GraviLearn 1.1.0, Gravicode.RLNet 0.1.0, G
 - **Benchmarks: this is a 4-core 15 W laptop that throttles.** Alternate variants in one process and take the
   best of many runs; never compare timings across separate runs. Rust only clearly wins for VaR and
   multi-threaded Monte Carlo.
-- The indicator catalogue is 144 entries (111 + 33 patterns), not the 200+ in the spec — say so in docs.
+- The indicator catalogue is 248 entries (188 indicators + 60 patterns). `IndicatorCategory` values are
+  public API: append new members at the end (as `Cycle` was), never insert — same for `CandlePattern`.
 - Historical stress scenarios are stylised, rounded shocks (illustrative, not regulatory).
 
 ## Conventions

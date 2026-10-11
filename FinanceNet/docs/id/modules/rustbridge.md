@@ -40,8 +40,9 @@ RustAccelerator.ForceManaged = true;                 // atau env FINANCE_NATIVE_
 ```
 
 Urutan pencarian: variabel lingkungan `FINANCE_NATIVE_PATH`, di samping assembly, lalu
-`runtimes/{rid}/native`. Paket NuGet membawa binary Windows x64 di `runtimes/win-x64/native`
-(`.so` → linux-x64 dan `.dylib` → osx-arm64 jika dibangun di sistem tersebut).
+`runtimes/{rid}/native`. Paket NuGet membawa ketiga binary, dibangun CI di masing-masing OS:
+`runtimes/win-x64/native/finance_native.dll`, `runtimes/linux-x64/native/libfinance_native.so` dan
+`runtimes/osx-arm64/native/libfinance_native.dylib`.
 
 ## API
 
@@ -90,8 +91,8 @@ RustBridge.
 - Rust jelas unggul hanya untuk pekerjaan yang berat per elemen atau paralel: VaR historis (~2,6×) dan
   Monte Carlo multi-thread. Indikator sederhana dan Black-Scholes berjalan kurang lebih sama cepatnya di
   .NET managed — lihat [Benchmark](../benchmarks.md).
-- Di mesin pengembangan hanya binary win-x64 yang dibangun dan dipaketkan; binary Linux/macOS ikut
-  dipaketkan jika crate dibangun di platform tersebut.
+- Platform lain (linux-arm64, osx-x64, win-arm64) belum punya binary native dan memakai fallback
+  managed, yang hasilnya identik.
 
 ---
 
