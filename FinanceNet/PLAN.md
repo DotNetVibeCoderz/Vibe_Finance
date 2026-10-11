@@ -35,8 +35,8 @@ Spesifikasi acuan adalah [solution-design.md](solution-design.md). Status harian
   (peaks-over-threshold) VaR/ES, liquidity-adjusted VaR, historical incremental/component VaR for
   what-if trades, FRTB-SA delta aggregation with GIRR parameters (done 2026-10-11). Open: FRTB
   vega/curvature/DRC.
-- **Portfolio**: transaction-cost-aware rebalancing, turnover constraints, sector/factor exposure
-  constraints, robust (resampled) frontiers, a proper interior-point QP for large universes.
+- ✅ **Portfolio**: interior-point QP, cost-aware rebalancing, turnover / sector / factor-exposure
+  constraints, Michaud resampled frontier (done 2026-10-12).
 - **Backtesting**: tick-level / order-book replay engine, latency models, corporate actions and
   survivorship-bias-free universes.
 

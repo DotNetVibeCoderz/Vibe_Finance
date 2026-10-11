@@ -64,6 +64,40 @@ foreach (FrontierPoint p in mvo.EfficientFrontier(points: 40, riskFreeRate: 0.03
 Negative `lowerBound` allows shorting. `PortfolioWeights` is an `IReadOnlyList<double>` with
 `Assets`, `ToDictionary()` and `Clean(cutoff)` (zeroes tiny weights and rounds).
 
+## Constrained optimisation and cost-aware rebalancing (v0.2)
+
+```csharp
+string[] sector = { "Tech", "Tech", "Bonds", "Energy" };
+double[] beta = { 1.1, 1.3, 0.2, 0.9 };
+var opt = new ConstrainedPortfolioOptimizer(mu, cov, assets)
+{
+    CurrentWeights = current,                          // enables costs and turnover
+    BuyCosts = Enumerable.Repeat(0.001, 4).ToArray(),  // 10bp per unit traded (SellCosts defaults to the same)
+    MaxTurnover = 0.30,                                // Σ|w − w0| ≤ 30%
+}
+.WithBounds(0, 0.4)
+.AddSectorLimit(sector, "Tech", 0, 0.5)
+.AddFactorExposure("market", beta, 0.8, 1.0);
+
+ConstrainedPortfolio r = opt.MaxQuadraticUtility(riskAversion: 4);   // or MinVolatility(), EfficientReturn(0.10)
+Console.WriteLine($"turnover {r.Turnover:P1}, cost {r.TransactionCost:P3}, σ {r.Volatility:P2}");
+```
+
+Everything runs on `QuadraticProgram`, a dense primal-dual interior-point solver (Mehrotra predictor-corrector)
+for min ½xᵀQx + cᵀx with equalities, inequalities and bounds. It is public, so other convex QPs can use it too.
+Trades are buy/sell variables, so proportional costs create a no-trade region: small improvements are not
+worth trading. A 200-asset problem with costs, turnover and bounds (600 QP variables) solves in about two seconds.
+
+### Resampled efficient frontier
+
+```csharp
+IReadOnlyList<FrontierPoint> robust = ResampledFrontier.Compute(mu, cov, observations: 60, simulations: 200, points: 20);
+```
+
+Michaud resampling: simulate histories from N(μ, Σ), re-estimate, average the frontier weights rank by
+rank, and evaluate on the original inputs. The points lie inside the classical frontier but are much more
+diversified and stable under estimation error.
+
 ## Black-Litterman
 
 ```csharp
@@ -115,6 +149,9 @@ Console.WriteLine($"cash left {alloc.Leftover:N2}");
 `RebalanceTrade(Asset, Side, Quantity, Price)`.
 
 ## Notes and limitations
+
+- `QuadraticProgram` is dense. It is comfortable to a few thousand variables; a large sparse universe would
+  need a sparse KKT factorisation. Keep equality constraints few: each one adds to a Schur complement.
 
 - The quadratic programs are solved by an accelerated projected-gradient method on the capped
   simplex (`BoxSimplexQp`); results are verified against KKT conditions and closed forms. Bounded

@@ -65,6 +65,41 @@ foreach (FrontierPoint p in mvo.EfficientFrontier(points: 40, riskFreeRate: 0.03
 `lowerBound` negatif mengizinkan short. `PortfolioWeights` adalah `IReadOnlyList<double>` dengan
 `Assets`, `ToDictionary()`, dan `Clean(cutoff)` (menolkan bobot yang sangat kecil lalu membulatkan).
 
+## Optimasi terkendala dan rebalancing sadar biaya (v0.2)
+
+```csharp
+string[] sector = { "Tech", "Tech", "Bonds", "Energy" };
+double[] beta = { 1.1, 1.3, 0.2, 0.9 };
+var opt = new ConstrainedPortfolioOptimizer(mu, cov, assets)
+{
+    CurrentWeights = current,                          // mengaktifkan biaya dan turnover
+    BuyCosts = Enumerable.Repeat(0.001, 4).ToArray(),  // 10bp per unit yang ditransaksikan (SellCosts default sama)
+    MaxTurnover = 0.30,                                // Σ|w − w0| ≤ 30%
+}
+.WithBounds(0, 0.4)
+.AddSectorLimit(sector, "Tech", 0, 0.5)
+.AddFactorExposure("market", beta, 0.8, 1.0);
+
+ConstrainedPortfolio r = opt.MaxQuadraticUtility(riskAversion: 4);   // atau MinVolatility(), EfficientReturn(0.10)
+Console.WriteLine($"turnover {r.Turnover:P1}, biaya {r.TransactionCost:P3}, σ {r.Volatility:P2}");
+```
+
+Semuanya berjalan di atas `QuadraticProgram`, solver interior-point primal-dual padat (prediktor-korektor
+Mehrotra) untuk min ½xᵀQx + cᵀx dengan kesamaan, pertidaksamaan, dan batas. Kelasnya publik, jadi QP konveks
+lain juga bisa memakainya. Transaksi dimodelkan sebagai variabel beli/jual, sehingga biaya proporsional
+menciptakan wilayah tanpa transaksi: perbaikan kecil tidak layak ditransaksikan. Masalah 200 aset dengan
+biaya, turnover, dan batas (600 variabel QP) selesai sekitar dua detik.
+
+### Frontier efisien hasil resampling
+
+```csharp
+IReadOnlyList<FrontierPoint> robust = ResampledFrontier.Compute(mu, cov, observations: 60, simulations: 200, points: 20);
+```
+
+Resampling Michaud: simulasikan histori dari N(μ, Σ), estimasi ulang, rata-ratakan bobot frontier per
+peringkat, lalu evaluasi pada input asli. Titik-titiknya berada sedikit di dalam frontier klasik tetapi jauh
+lebih terdiversifikasi dan stabil terhadap galat estimasi.
+
 ## Black-Litterman
 
 ```csharp
@@ -116,6 +151,9 @@ Console.WriteLine($"sisa kas {alloc.Leftover:N2}");
 `RebalanceTrade(Asset, Side, Quantity, Price)`.
 
 ## Catatan dan batasan
+
+- `QuadraticProgram` bersifat padat. Nyaman hingga beberapa ribu variabel; semesta besar yang jarang
+  memerlukan faktorisasi KKT sparse. Batasi jumlah kendala kesamaan: masing-masing menambah Schur complement.
 
 - Program kuadratik diselesaikan dengan metode projected gradient yang dipercepat pada capped simplex
   (`BoxSimplexQp`); hasilnya diverifikasi terhadap kondisi KKT dan rumus tertutup. Masalah
