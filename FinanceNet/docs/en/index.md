@@ -93,13 +93,13 @@ All packages target `net10.0`. NuGet IDs follow the pattern `Gravicode.<ProjectN
 | `Gravicode.Finance.Math` | SIMD statistics, dense matrices (GraviNum interop), normal/Student-t distributions, root finding, optimisers, interpolation, regression |
 | `Gravicode.Finance.DataFrame` | Columnar OHLCV frames, aligned price panels, CSV, GraviFrame interop |
 | `Gravicode.Finance.TimeSeries` | Returns, drawdowns, O(n) rolling statistics, 248-entry indicator catalogue, streaming indicators |
-| `Gravicode.Finance.MarketData` | Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, CSV and synthetic providers; streaming; economic and fundamental data |
+| `Gravicode.Finance.MarketData` | Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, Alpaca, OANDA, Bybit, OKX, IDX, CSV and synthetic providers; FRED and SEC EDGAR; streaming; economic and fundamental data |
 | `Gravicode.Finance.AlternativeData` | Social-media sentiment, ESG analytics, supply-chain graphs, weather analytics |
 | `Gravicode.Finance.Pricing` | Black-Scholes, Black-76, Bachelier, trees, Monte Carlo, Heston, SABR, curves, bonds, swaps, swaptions, CDS, structured notes |
 | `Gravicode.Finance.Risk` | VaR/ES (historical, parametric, Cornish-Fisher, Monte Carlo), backtests, stress tests, simulation, performance metrics, GARCH |
 | `Gravicode.Finance.Portfolio` | Mean-variance, Black-Litterman, risk parity, HRP, CVaR, discrete allocation |
 | `Gravicode.Finance.Backtesting` | Event-driven engine, vectorised backtester, walk-forward optimisation, portfolio rebalancing |
-| `Gravicode.Finance.Execution` | OMS, paper/Binance/Interactive Brokers brokers, FIX 4.4, TWAP/VWAP/POV/Iceberg, smart order routing, TCA |
+| `Gravicode.Finance.Execution` | OMS, paper/Binance/Alpaca/OANDA/Bybit/OKX/Interactive Brokers brokers, TWS socket client, FIX 4.4 / 5.0 SP2 with persistent sessions, TWAP/VWAP/POV/Iceberg, smart order routing, TCA |
 | `Gravicode.Finance.ML` | Trees, forests, boosting, linear models, labelling, purged CV, forecasting, RL (incl. RLNet), factor research, SHAP |
 | `Gravicode.Finance.LLM` | OpenAI, Azure OpenAI, Anthropic, Ollama and Hugging Face clients; tool-calling assistant; FinBERT |
 | `Gravicode.Finance.LLM.Local` | FinBERT run locally through HF.Net (no API, no credits) |

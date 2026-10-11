@@ -115,7 +115,39 @@ BalanceSheet[] balance = await avProvider.GetBalanceSheetsAsync("MSFT");
 FundamentalRatios ratios = FundamentalRatios.Compute(income[0], balance[0], previousIncome: income[1]);
 ```
 
+## Provider tambahan (v0.3)
+
+```csharp
+var alpaca = new AlpacaProvider(keyId, secret);                 // saham AS, feed IEX (gratis) atau SIP
+var oanda  = new OandaProvider(token, accountId);               // candle mid FX/CFD, "EUR/USD" diterima
+var bybit  = new BybitProvider(category: "spot");               // publik, tanpa kunci; juga IOrderBookProvider
+var okx    = new OkxProvider();                                 // publik, tanpa kunci; "BTCUSDT" → "BTC-USDT"
+var idx    = new IdxProvider();                                 // IDX lewat Yahoo: "BBCA" → "BBCA.JK", "IHSG" → "^JKSE"
+
+int tick = IdxRules.TickSize(4_530);                            // Rp10
+var (arb, ara) = IdxRules.AutoRejection(4_530);                 // batas auto-rejection, pada grid tick
+
+var fred = new FredProvider(fredApiKey);
+EconomicSeries curve = await fred.GetSeriesAsync("T10Y2Y");      // seri FRED mana pun
+var releases = await fred.GetEventsAsync(DateTime.UtcNow, DateTime.UtcNow.AddDays(14));   // kalender rilis
+
+var sec = new SecEdgarProvider("Nama Anda anda@example.com");   // SEC mewajibkan User-Agent dengan kontak
+IncomeStatement[] apple = await sec.GetIncomeStatementsAsync("AAPL");
+IReadOnlyList<XbrlFact> rd = await sec.GetFactsAsync("AAPL", "us-gaap", "ResearchAndDevelopmentExpense");
+```
+
+Laporan EDGAR menggabungkan konsep sinonim per periode (pelapor beralih dari `Revenues` ke
+`RevenueFromContractWithCustomerExcludingAssessedTax`, dst.), dengan filing terbaru yang menang, sehingga
+restatement ikut terambil. EDGAR sudah diverifikasi live pada laporan Apple (pendapatan, margin, aset =
+liabilitas + ekuitas).
+
 ## Catatan dan batasan
+
+- IDX tidak punya API resmi gratis; `IdxProvider` mengandalkan vendor yang memuat listing ".JK". `IdxRules`
+  memuat tabel fraksi harga 2016 dan ukuran lot; persentase auto-rejection sudah beberapa kali berubah, jadi
+  dijadikan parameter.
+- Bybit dan OKX tidak dapat dijangkau dari jaringan pengembangan; parser-nya mengikuti format dokumentasi.
+  Alpaca, OANDA, dan FRED memerlukan kunci dan belum dijalankan live.
 
 - Dari sebagian jaringan, `api.binance.com` gagal validasi TLS; karena itu provider secara bawaan memakai
   **mirror data pasar** resmi Binance, `https://data-api.binance.vision` (REST) dan

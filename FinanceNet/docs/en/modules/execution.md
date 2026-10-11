@@ -81,6 +81,44 @@ await session.LogoutAsync();
 `FixMessage` supports typed getters/setters, repeating groups (`AddGroup` / `GetGroup`) and
 `FixFramer` splits a TCP byte stream into messages.
 
+### Persistent sessions and FIX 5.0 SP2 (v0.3)
+
+```csharp
+var settings = FixSessionSettings.Fix50Sp2("CLIENT", "BROKER", isInitiator: true) with { ResetSeqNumOnLogon = false };
+var store = new FileFixMessageStore(@"C:\fix\store", "CLIENT-BROKER");
+await using var session = new FixSession(settings, await TcpFixTransport.ConnectAsync(host, port), store: store);
+await session.StartAsync();
+```
+
+`FileFixMessageStore` persists both sequence numbers and every sent application message, flushed to disk
+*before* the message reaches the wire. A session restarted, even in a new process, logs on with its next
+sequence number, and anything the counterparty missed is recovered through ResendRequest, replayed with
+PossDupFlag=Y while administrative messages are gap-filled. `FixSessionSettings.Fix50Sp2` speaks FIXT.1.1 and
+sends DefaultApplVerID=9 at logon.
+
+## More venues (v0.3)
+
+| Broker | Auth | Notes |
+|---|---|---|
+| `AlpacaBroker` | APCA key headers | US equities/crypto; `PaperUrl` for paper trading |
+| `OandaBroker` | Bearer token | FX/CFDs; signed units, "EUR_USD" instruments, FOK market orders |
+| `BybitBroker` | HMAC-SHA256 (X-BAPI-*) | v5 unified API, spot by default; `TestnetUrl` |
+| `OkxBroker` | HMAC-SHA256 Base64 + passphrase | v5 API, cash mode; demo trading via `demo: true` |
+| `TwsClient` | TWS / IB Gateway socket | account monitoring: positions, account summary, server time, ids, cancels |
+
+The REST brokers share `VenueBroker`: venues report cumulative quantity and average price, and `RefreshAsync`
+turns that into incremental fills, recorded exactly once however often an order is polled.
+
+```csharp
+IBroker alpaca = new AlpacaBroker(keyId, secret);                      // paper by default
+var order = await alpaca.SubmitAsync(Order.LimitBuy("AAPL", 10, 190));
+await ((VenueBroker)alpaca).RefreshAsync();                            // poll fills / cancellations
+
+await using var tws = await TwsClient.ConnectAsync("127.0.0.1", 7497, clientId: 1);
+var positions = await tws.GetPositionsAsync();
+var netLiq = (await tws.GetAccountSummaryAsync()).Single(v => v.Tag == "NetLiquidation");
+```
+
 ## Algorithms, routing, TCA
 
 ```csharp
@@ -107,6 +145,13 @@ double impact = TransactionCostAnalysis.SquareRootImpact(quantity: 50_000, avera
 ```
 
 ## Notes and limitations
+
+- `TwsClient` does not place orders: `placeOrder` has a long, version-dependent field list that could not be
+  verified against a live TWS here. Place IB orders through `InteractiveBrokersBroker` (Client Portal Web API).
+- Live status of the v0.3 venues: none was traded live. Alpaca, OANDA, Bybit and OKX need accounts, and Bybit
+  and OKX are also unreachable from the development network (TLS reset, as with Binance's main domain). All
+  four are tested against payloads in their documented formats; stop orders on Bybit/OKX (algo/conditional
+  endpoints) are not covered.
 
 - The Interactive Brokers adapter targets the **Client Portal Web API** (REST via the IB gateway);
   it is tested against recorded payloads, not a running gateway. The TWS socket API is on the roadmap.

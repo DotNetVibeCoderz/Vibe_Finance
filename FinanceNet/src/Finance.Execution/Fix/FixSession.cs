@@ -5,24 +5,40 @@ namespace Finance.Execution.Fix;
 /// <summary>Session configuration.</summary>
 public sealed record FixSessionSettings(string SenderCompId, string TargetCompId, bool IsInitiator, int HeartBtIntSeconds = 30)
 {
-    public string BeginString { get; init; } = "FIX.4.4";
+    public string BeginString { get; init; } = FixVersions.Fix44;
 
     /// <summary>Send 141=Y on logon and restart both sequence numbers at 1.</summary>
     public bool ResetSeqNumOnLogon { get; init; } = true;
+
+    /// <summary>
+    /// Default application version sent in Logon (tag 1137) when <see cref="BeginString"/> is FIXT.1.1;
+    /// "9" is FIX 5.0 SP2.
+    /// </summary>
+    public string DefaultApplVerId { get; init; } = FixVersions.ApplFix50Sp2;
+
+    /// <summary>FIX 5.0 SP2 over FIXT.1.1.</summary>
+    public static FixSessionSettings Fix50Sp2(string senderCompId, string targetCompId, bool isInitiator, int heartBtIntSeconds = 30)
+        => new(senderCompId, targetCompId, isInitiator, heartBtIntSeconds) { BeginString = FixVersions.Fixt11 };
 }
 
 public enum FixSessionState { Disconnected, LogonSent, LoggedOn, LogoutSent, Closed }
 
 /// <summary>
-/// A FIX 4.4 session: logon/logout handshake, sequence numbers, heartbeats and test requests,
-/// gap detection with ResendRequest, and replay of stored application messages (PossDupFlag=Y)
-/// with SequenceReset-GapFill over administrative messages.
+/// A FIX session (FIX 4.4, or FIX 5.0 SP2 over FIXT.1.1): logon/logout handshake, sequence numbers,
+/// heartbeats and test requests, gap detection with ResendRequest, and replay of stored application messages
+/// (PossDupFlag=Y) with SequenceReset-GapFill over administrative messages.
 /// </summary>
+/// <remarks>
+/// Sequence numbers and sent messages live in an <see cref="IFixMessageStore"/>. With a
+/// <see cref="FileFixMessageStore"/> and <see cref="FixSessionSettings.ResetSeqNumOnLogon"/> off, a session that is
+/// restarted (even in a new process) logs on with its next sequence number, and both sides recover the
+/// messages lost while disconnected through the normal resend protocol.
+/// </remarks>
 public sealed class FixSession : IAsyncDisposable
 {
     private readonly IFixTransport _transport;
     private readonly TimeProvider _time;
-    private readonly ConcurrentDictionary<int, FixMessage> _sent = new();
+    private readonly IFixMessageStore _store;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly TaskCompletionSource _loggedOn = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -31,24 +47,37 @@ public sealed class FixSession : IAsyncDisposable
     private long _lastSentTicks, _lastReceivedTicks;
     private bool _testRequestPending;
     private int _resendRequestedUpTo;
+    private int _highestSeenSeqNum;
     private int _testReqCounter;
 
-    public FixSession(FixSessionSettings settings, IFixTransport transport, TimeProvider? time = null)
+    public FixSession(FixSessionSettings settings, IFixTransport transport, TimeProvider? time = null, IFixMessageStore? store = null)
     {
         Settings = settings;
         _transport = transport;
         _time = time ?? TimeProvider.System;
+        _store = store ?? new MemoryFixMessageStore();
     }
+
+    /// <summary>The store holding sequence numbers and sent messages.</summary>
+    public IFixMessageStore Store => _store;
 
     public FixSessionSettings Settings { get; }
 
     public FixSessionState State { get; private set; } = FixSessionState.Disconnected;
 
-    /// <summary>Sequence number of the next outgoing message.</summary>
-    public int NextOutgoingSeqNum { get; private set; } = 1;
+    /// <summary>Sequence number of the next outgoing message (persisted in the store).</summary>
+    public int NextOutgoingSeqNum
+    {
+        get => _store.NextSenderSeqNum;
+        private set => _store.NextSenderSeqNum = value;
+    }
 
-    /// <summary>Sequence number expected on the next incoming message.</summary>
-    public int NextExpectedSeqNum { get; private set; } = 1;
+    /// <summary>Sequence number expected on the next incoming message (persisted in the store).</summary>
+    public int NextExpectedSeqNum
+    {
+        get => _store.NextTargetSeqNum;
+        private set => _store.NextTargetSeqNum = value;
+    }
 
     /// <summary>Application (non-session) messages, and session Rejects.</summary>
     public event Action<FixMessage>? MessageReceived;
@@ -71,14 +100,11 @@ public sealed class FixSession : IAsyncDisposable
         _lastReceivedTicks = _lastSentTicks = _time.GetTimestamp();
         _receiveLoop = Task.Run(() => ReceiveLoop(_cts.Token));
         _heartbeatLoop = Task.Run(() => HeartbeatLoop(_cts.Token));
+        if (Settings.ResetSeqNumOnLogon && Settings.IsInitiator) _store.Reset();
         if (Settings.IsInitiator)
         {
-            var logon = new FixMessage(FixMsgType.Logon, Settings.BeginString).Set(FixTags.EncryptMethod, 0).Set(FixTags.HeartBtInt, Settings.HeartBtIntSeconds);
-            if (Settings.ResetSeqNumOnLogon)
-            {
-                NextOutgoingSeqNum = 1;
-                logon.Set(FixTags.ResetSeqNumFlag, true);
-            }
+            var logon = NewLogon(Settings.HeartBtIntSeconds);
+            if (Settings.ResetSeqNumOnLogon) logon.Set(FixTags.ResetSeqNumFlag, true);
             await SendRawAsync(logon, cancellationToken).ConfigureAwait(false);
             SetState(FixSessionState.LogonSent);
         }
@@ -131,7 +157,8 @@ public sealed class FixSession : IAsyncDisposable
             m.Set(FixTags.SendingTime, now);
             if (!possDup)
             {
-                if (!m.IsAdmin) _sent[NextOutgoingSeqNum] = m;
+                // Persist before the message reaches the wire, so a crash cannot lose a resendable message.
+                if (!m.IsAdmin) _store.Save(NextOutgoingSeqNum, m.EncodeString());
                 NextOutgoingSeqNum++;
             }
             await _transport.SendAsync(m.Encode(), ct).ConfigureAwait(false);
@@ -187,6 +214,7 @@ public sealed class FixSession : IAsyncDisposable
 
         if (seq > NextExpectedSeqNum)
         {
+            _highestSeenSeqNum = Math.Max(_highestSeenSeqNum, seq);
             if (type == FixMsgType.Logon) await OnLogonAsync(msg, ct).ConfigureAwait(false);
             if (type == FixMsgType.Logout)
             {
@@ -238,6 +266,15 @@ public sealed class FixSession : IAsyncDisposable
                 MessageReceived?.Invoke(msg);
                 break;
         }
+
+        // Messages that arrived beyond the gap while a resend was outstanding were dropped. If the replay has caught
+        // up with the request but not with them (the peer answered before sending them), ask again from here.
+        if (_highestSeenSeqNum >= NextExpectedSeqNum && NextExpectedSeqNum > _resendRequestedUpTo && State == FixSessionState.LoggedOn)
+        {
+            _resendRequestedUpTo = _highestSeenSeqNum;
+            await SendRawAsync(new FixMessage(FixMsgType.ResendRequest, Settings.BeginString)
+                .Set(FixTags.BeginSeqNo, NextExpectedSeqNum).Set(FixTags.EndSeqNo, 0), ct).ConfigureAwait(false);
+        }
     }
 
     private async Task OnLogonAsync(FixMessage msg, CancellationToken ct)
@@ -245,18 +282,25 @@ public sealed class FixSession : IAsyncDisposable
         if (State == FixSessionState.LoggedOn) return;
         if (!Settings.IsInitiator)
         {
-            var reply = new FixMessage(FixMsgType.Logon, Settings.BeginString).Set(FixTags.EncryptMethod, 0)
-                .Set(FixTags.HeartBtInt, msg.GetInt(FixTags.HeartBtInt) ?? Settings.HeartBtIntSeconds);
+            var reply = NewLogon(msg.GetInt(FixTags.HeartBtInt) ?? Settings.HeartBtIntSeconds);
             if (msg.GetBool(FixTags.ResetSeqNumFlag))
             {
-                NextOutgoingSeqNum = 1;
-                _sent.Clear();
+                int expected = NextExpectedSeqNum;
+                _store.Reset();
+                NextExpectedSeqNum = expected;   // already advanced past the Logon just received
                 reply.Set(FixTags.ResetSeqNumFlag, true);
             }
             await SendRawAsync(reply, ct).ConfigureAwait(false);
         }
         SetState(FixSessionState.LoggedOn);
         _loggedOn.TrySetResult();
+    }
+
+    private FixMessage NewLogon(int heartBtInt)
+    {
+        var logon = new FixMessage(FixMsgType.Logon, Settings.BeginString).Set(FixTags.EncryptMethod, 0).Set(FixTags.HeartBtInt, heartBtInt);
+        if (Settings.BeginString == FixVersions.Fixt11) logon.Set(FixTags.DefaultApplVerID, Settings.DefaultApplVerId);
+        return logon;
     }
 
     private async Task OnLogoutAsync(CancellationToken ct)
@@ -271,16 +315,17 @@ public sealed class FixSession : IAsyncDisposable
         int last = NextOutgoingSeqNum - 1;
         if (end == 0 || end > last) end = last;
         int? gapStart = null;
+        var stored = _store.Get(begin, end).ToDictionary(p => p.SeqNum, p => FixMessage.Parse(p.Message, validate: false));
         for (int s = begin; s <= end; s++)
         {
-            if (_sent.TryGetValue(s, out var stored))
+            if (stored.TryGetValue(s, out var original))
             {
                 if (gapStart is { } g)
                 {
                     await GapFillAsync(g, s, ct).ConfigureAwait(false);
                     gapStart = null;
                 }
-                await SendRawAsync(stored, ct, possDup: true).ConfigureAwait(false);
+                await SendRawAsync(original, ct, possDup: true).ConfigureAwait(false);
             }
             else gapStart ??= s;
         }

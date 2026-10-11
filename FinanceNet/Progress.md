@@ -2,14 +2,14 @@
 
 > Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
 
-Last updated / Terakhir diperbarui: **2026-10-12** · Version **0.6.0**
+Last updated / Terakhir diperbarui: **2026-10-12** · Version **0.7.0**
 
 ## Summary / Ringkasan
 
 | Item | Status |
 |---|---|
 | Libraries (18 packages) | ✅ all build, 0 warnings, 0 errors (`Finance.LLM.Local` added after 0.1.0) |
-| Unit tests | ✅ **427 passed, 0 failed, 4 skipped** (skipped = live tests gated by env vars) |
+| Unit tests | ✅ **452 passed, 0 failed, 5 skipped** (skipped = live tests gated by env vars) |
 | Rust crate `finance_native` | ✅ `cargo test` 15/15, loaded by Finance.RustBridge with managed fallback |
 | Finance.Net Gallery (Avalonia) | ✅ 11 modules + overview, screenshots in `docs/screenshots` |
 | Quickstart console sample | ✅ nine-section tour + HTML tearsheet |
@@ -25,7 +25,7 @@ Last updated / Terakhir diperbarui: **2026-10-12** · Version **0.6.0**
 | Finance.Analytics.Tests | DataFrame, TimeSeries, Visualization | 88 / 88 |
 | Finance.Quant.Tests | Pricing, Risk | 94 / 94 |
 | Finance.Portfolio.Tests | Portfolio, Backtesting | 70 / 70 |
-| Finance.Data.Tests | MarketData, AlternativeData, Execution | 53 / 53 (+1 live, skipped) |
+| Finance.Data.Tests | MarketData, AlternativeData, Execution | 78 / 78 (+2 live, skipped) |
 | Finance.AI.Tests | ML, LLM, LLM.Local, NewsAnalytics | 38 / 38 (+3 live, skipped) |
 | Finance.Native.Tests | GPU, RustBridge | 34 / 34 |
 
@@ -42,13 +42,13 @@ PhraseBank-style positive/negative/neutral sentences classified correctly, ~100 
 | Finance.Math | ✅ | SIMD stats, Ledoit-Wolf, Matrix (+GraviNum eigen), Normal/Student-t, Brent/Newton, projected gradient, Nelder-Mead, splines, OLS/ridge |
 | Finance.DataFrame | ✅ | OhlcvFrame, CSV, resample, PricePanel, GraviFrame interop. Panel alignment is exact-timestamp inner join only |
 | Finance.TimeSeries | ✅ | Returns, rolling O(n), streaming indicators; **catalogue 248 entries (188 indicators + 60 patterns)**, incl. Hilbert/Ehlers cycles, rolling volume profile and TPO |
-| Finance.MarketData | ✅ | Yahoo, Alpha Vantage, Polygon, Binance, Coinbase, CSV, synthetic, cache, rate limiter, WebSocket, economic, fundamentals. Coinbase not verified live (TLS failure from this network) |
+| Finance.MarketData | ✅ | Yahoo, Alpha Vantage, Polygon, Binance, Coinbase, **Alpaca, OANDA, Bybit, OKX, IDX (+ IdxRules)**, CSV, synthetic, cache, rate limiter, WebSocket, economic (**FRED**), fundamentals (**SEC EDGAR XBRL, verified live**). Coinbase, Bybit, OKX unreachable from this network; Alpaca/OANDA/FRED need keys |
 | Finance.AlternativeData | ✅ | Social (Reddit), ESG, supply chain, weather. Reddit unauthenticated access is usually blocked |
 | Finance.Pricing | ✅ | BSM+Greeks, IV, Black-76, Bachelier, trees, MC, Heston, SABR, surfaces, **Dupire local vol**, curves, NSS, bonds, FRN, IRS, swaptions, **Hull-White/G2++ with Bermudan LSMC**, **inflation (ZC/YoY) and cross-currency swaps**, forwards, CDS + **ISDA-style CDS (upfront, CS01)**, structured, autocallable |
 | Finance.Risk | ✅ | VaR/ES (7 methods incl. filtered HS and EVT/GPD), liquidity-adjusted and historical incremental/component VaR, FRTB-SA delta (GIRR), attribution, Kupiec/Christoffersen, stress (stylised scenarios), MC simulation, performance report, GARCH, EWMA |
 | Finance.Portfolio | ✅ | MVO, **interior-point QP with sector/factor/turnover constraints and transaction costs**, **resampled frontier**, Black-Litterman, risk parity, HRP, CVaR, heuristics, discrete allocation, rebalancing. CVaR untested above ~30 assets |
 | Finance.Backtesting | ✅ | Event-driven engine, costs, **corporate actions, delistings, point-in-time universe**, **L2 order-book replay with latency and queue position**, vectorised, sweeps, walk-forward, portfolio backtester, 5 strategies. Walk-forward OOS windows start flat |
-| Finance.Execution | ✅ | OMS, paper broker, FIX 4.4 + session, Binance & IBKR adapters, TWAP/VWAP/POV/Iceberg, SOR, pre-trade risk, TCA. Binance WS and IBKR not tested live |
+| Finance.Execution | ✅ | OMS, paper broker, FIX 4.4 / **5.0 SP2** + session with **persistent store and restart recovery**, Binance, **Alpaca, OANDA, Bybit, OKX** & IBKR adapters (+ **TWS socket client**), TWAP/VWAP/POV/Iceberg, SOR, pre-trade risk, TCA. New venues tested on documented payloads, not live |
 | Finance.ML | ✅ | Features, labelling, frac-diff, purged CV, linear/trees/forest/GBM, AR/ARIMA/Holt-Winters, Q-learning + **Gravicode.RLNet DQN/PPO**, factors, Alphalens-style research, SHAP, PDP/ICE |
 | Finance.LLM | ✅ | OpenAI/Azure/Anthropic/Ollama/HF/DeepSeek, SSE streaming, tool calling, FinancialAssistant, FinGPT-style tasks, FinBERT (hosted) |
 | Finance.LLM.Local | ✅ | FinBERT in-process via HF.Net 0.9.0 (0.8.1 gained legacy `pytorch_model.bin` support for ProsusAI/finbert). Separate package so Finance.LLM stays dependency-free |

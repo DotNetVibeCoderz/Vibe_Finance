@@ -115,7 +115,37 @@ BalanceSheet[] balance = await avProvider.GetBalanceSheetsAsync("MSFT");
 FundamentalRatios ratios = FundamentalRatios.Compute(income[0], balance[0], previousIncome: income[1]);
 ```
 
+## More providers (v0.3)
+
+```csharp
+var alpaca = new AlpacaProvider(keyId, secret);                 // US stocks, IEX feed (free) or SIP
+var oanda  = new OandaProvider(token, accountId);               // FX/CFD mid candles, "EUR/USD" accepted
+var bybit  = new BybitProvider(category: "spot");               // public, no key; also IOrderBookProvider
+var okx    = new OkxProvider();                                 // public, no key; "BTCUSDT" → "BTC-USDT"
+var idx    = new IdxProvider();                                 // IDX via Yahoo: "BBCA" → "BBCA.JK", "IHSG" → "^JKSE"
+
+int tick = IdxRules.TickSize(4_530);                            // Rp10
+var (arb, ara) = IdxRules.AutoRejection(4_530);                 // auto-rejection band, on the tick grid
+
+var fred = new FredProvider(fredApiKey);
+EconomicSeries curve = await fred.GetSeriesAsync("T10Y2Y");      // any of FRED's series
+var releases = await fred.GetEventsAsync(DateTime.UtcNow, DateTime.UtcNow.AddDays(14));   // release calendar
+
+var sec = new SecEdgarProvider("Your Name you@example.com");    // SEC requires a contact User-Agent
+IncomeStatement[] apple = await sec.GetIncomeStatementsAsync("AAPL");
+IReadOnlyList<XbrlFact> rd = await sec.GetFactsAsync("AAPL", "us-gaap", "ResearchAndDevelopmentExpense");
+```
+
+EDGAR statements merge synonym concepts per period (filers switch from `Revenues` to
+`RevenueFromContractWithCustomerExcludingAssessedTax`, ...), the latest filing winning, so restatements are
+picked up. EDGAR was verified live on Apple's filings (revenue, margins, assets = liabilities + equity).
+
 ## Notes and limitations
+
+- IDX has no free official API; `IdxProvider` relies on a vendor carrying ".JK" listings. `IdxRules` encodes the
+  2016 tick table and lot size; auto-rejection percentages have changed several times, so they are parameters.
+- Bybit and OKX could not be reached from the development network; their parsers follow the documented formats.
+  Alpaca, OANDA and FRED need keys and were not exercised live.
 
 - From some networks `api.binance.com` fails TLS validation; the providers therefore default to
   Binance's official **market-data mirrors** `https://data-api.binance.vision` (REST) and

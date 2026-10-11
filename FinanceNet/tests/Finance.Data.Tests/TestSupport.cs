@@ -10,9 +10,19 @@ public sealed class FakeHandler : HttpMessageHandler
 
     public List<HttpRequestMessage> Requests { get; } = new();
 
+    /// <summary>Request bodies, captured before the request is disposed (null for requests without content).</summary>
+    public List<string?> Bodies { get; } = new();
+
     public FakeHandler On(string urlContains, string body, HttpStatusCode code = HttpStatusCode.OK)
     {
         _routes.Add((urlContains, code, body));
+        return this;
+    }
+
+    /// <summary>Like <see cref="On"/>, but takes precedence over earlier routes (for responses that change over time).</summary>
+    public FakeHandler Override(string urlContains, string body, HttpStatusCode code = HttpStatusCode.OK)
+    {
+        _routes.Insert(0, (urlContains, code, body));
         return this;
     }
 
@@ -21,6 +31,7 @@ public sealed class FakeHandler : HttpMessageHandler
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests.Add(request);
+        Bodies.Add(request.Content?.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult());
         var url = request.RequestUri!.ToString();
         foreach (var (m, code, body) in _routes)
             if (url.Contains(m, StringComparison.Ordinal))

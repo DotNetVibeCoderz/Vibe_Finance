@@ -81,6 +81,44 @@ await session.LogoutAsync();
 `FixMessage` mendukung getter/setter bertipe, repeating group (`AddGroup` / `GetGroup`), dan
 `FixFramer` memecah aliran byte TCP menjadi pesan-pesan.
 
+### Sesi persisten dan FIX 5.0 SP2 (v0.3)
+
+```csharp
+var settings = FixSessionSettings.Fix50Sp2("CLIENT", "BROKER", isInitiator: true) with { ResetSeqNumOnLogon = false };
+var store = new FileFixMessageStore(@"C:\fix\store", "CLIENT-BROKER");
+await using var session = new FixSession(settings, await TcpFixTransport.ConnectAsync(host, port), store: store);
+await session.StartAsync();
+```
+
+`FileFixMessageStore` menyimpan kedua nomor urut dan setiap pesan aplikasi yang dikirim, di-flush ke disk
+*sebelum* pesan masuk ke jaringan. Sesi yang dimulai ulang, bahkan di proses baru, logon dengan nomor urut
+berikutnya, dan apa pun yang terlewat oleh lawan dipulihkan lewat ResendRequest, diputar ulang dengan
+PossDupFlag=Y sementara pesan administratif diisi gap-fill. `FixSessionSettings.Fix50Sp2` memakai FIXT.1.1 dan
+mengirim DefaultApplVerID=9 saat logon.
+
+## Venue tambahan (v0.3)
+
+| Broker | Autentikasi | Catatan |
+|---|---|---|
+| `AlpacaBroker` | header kunci APCA | Saham AS/kripto; `PaperUrl` untuk paper trading |
+| `OandaBroker` | Bearer token | FX/CFD; unit bertanda, instrumen "EUR_USD", order market FOK |
+| `BybitBroker` | HMAC-SHA256 (X-BAPI-*) | API unified v5, default spot; `TestnetUrl` |
+| `OkxBroker` | HMAC-SHA256 Base64 + passphrase | API v5, mode cash; demo trading lewat `demo: true` |
+| `TwsClient` | socket TWS / IB Gateway | pemantauan akun: posisi, ringkasan akun, waktu server, id, pembatalan |
+
+Broker REST berbagi `VenueBroker`: venue melaporkan kuantitas kumulatif dan harga rata-rata, dan `RefreshAsync`
+mengubahnya menjadi fill inkremental yang tercatat tepat sekali seberapa sering pun order di-poll.
+
+```csharp
+IBroker alpaca = new AlpacaBroker(keyId, secret);                      // default paper
+var order = await alpaca.SubmitAsync(Order.LimitBuy("AAPL", 10, 190));
+await ((VenueBroker)alpaca).RefreshAsync();                            // poll fill / pembatalan
+
+await using var tws = await TwsClient.ConnectAsync("127.0.0.1", 7497, clientId: 1);
+var positions = await tws.GetPositionsAsync();
+var netLiq = (await tws.GetAccountSummaryAsync()).Single(v => v.Tag == "NetLiquidation");
+```
+
 ## Algoritma, routing, TCA
 
 ```csharp
@@ -107,6 +145,14 @@ double impact = TransactionCostAnalysis.SquareRootImpact(quantity: 50_000, avera
 ```
 
 ## Catatan dan batasan
+
+- `TwsClient` tidak menempatkan order: `placeOrder` memiliki daftar field panjang yang bergantung versi dan tidak
+  dapat diverifikasi terhadap TWS live di sini. Tempatkan order IB lewat `InteractiveBrokersBroker` (Client
+  Portal Web API).
+- Status live venue v0.3: belum ada yang ditransaksikan secara live. Alpaca, OANDA, Bybit, dan OKX memerlukan
+  akun, dan Bybit serta OKX juga tidak dapat dijangkau dari jaringan pengembangan (koneksi TLS di-reset, seperti
+  domain utama Binance). Keempatnya diuji dengan payload sesuai format dokumentasinya; order stop di Bybit/OKX
+  (endpoint algo/conditional) belum dicakup.
 
 - Adapter Interactive Brokers menargetkan **Client Portal Web API** (REST melalui gateway IB); diuji
   dengan payload rekaman, belum dengan gateway yang berjalan. API socket TWS ada di roadmap.

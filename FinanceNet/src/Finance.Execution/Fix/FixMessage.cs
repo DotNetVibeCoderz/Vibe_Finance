@@ -12,7 +12,20 @@ public static class FixTags
         SendingTime = 52, Side = 54, Symbol = 55, TargetCompID = 56, Text = 58, TimeInForce = 59, TransactTime = 60,
         LastPx = 31, LastQty = 32, EncryptMethod = 98, StopPx = 99, HeartBtInt = 108, TestReqID = 112, OrigSendingTime = 122,
         GapFillFlag = 123, ResetSeqNumFlag = 141, ExecType = 150, LeavesQty = 151, NoMDEntries = 268, MDEntryType = 269,
-        MDEntryPx = 270, MDEntrySize = 271;
+        MDEntryPx = 270, MDEntrySize = 271, ApplVerID = 1128, DefaultApplVerID = 1137;
+}
+
+/// <summary>Session protocol versions and FIX 5.0+ application versions.</summary>
+public static class FixVersions
+{
+    /// <summary>BeginString of FIX 4.4 sessions.</summary>
+    public const string Fix44 = "FIX.4.4";
+
+    /// <summary>BeginString of the FIX 5.0+ transport session protocol.</summary>
+    public const string Fixt11 = "FIXT.1.1";
+
+    /// <summary>ApplVerID values (tag 1128/1137).</summary>
+    public const string ApplFix44 = "6", ApplFix50 = "7", ApplFix50Sp1 = "8", ApplFix50Sp2 = "9";
 }
 
 /// <summary>FIX 4.4 message types used by the session and order flow.</summary>

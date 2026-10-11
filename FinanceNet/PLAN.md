@@ -44,10 +44,13 @@ v0.2 is complete.
 
 ## v0.3 — Connectivity / Konektivitas
 
-- FIX session persistence (message store, gap fill on reconnect), FIX 5.0 SP2 / FIXT.
-- Interactive Brokers TWS socket API (in addition to Client Portal Web API).
-- More venues: Alpaca, OANDA, Bybit, OKX; IDX data vendors for the Indonesian market.
-- Economic calendar and fundamentals from additional providers (FRED, SEC EDGAR XBRL).
+- ✅ FIX session persistence (file message store, recovery across restarts), FIX 5.0 SP2 over FIXT.1.1.
+- ✅ Interactive Brokers TWS socket API (protocol, handshake, account monitoring; orders stay on the Web API).
+- ✅ More venues: Alpaca, OANDA, Bybit, OKX (brokers and data); IDX via vendor plus exchange rules.
+- ✅ Economic calendar and fundamentals: FRED (series, indicators, release calendar), SEC EDGAR XBRL.
+
+v0.3 is complete (2026-10-12). Open: TWS order placement, Bybit/OKX conditional orders, live verification
+of the key-gated venues.
 
 ## v0.4 — Financial AI / AI Keuangan
 

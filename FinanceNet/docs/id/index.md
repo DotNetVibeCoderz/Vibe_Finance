@@ -94,13 +94,13 @@ Semua paket menargetkan `net10.0`. ID NuGet mengikuti pola `Gravicode.<NamaProye
 | `Gravicode.Finance.Math` | Statistik SIMD, matriks padat (interop GraviNum), distribusi normal/Student-t, pencari akar, optimizer, interpolasi, regresi |
 | `Gravicode.Finance.DataFrame` | Frame OHLCV kolumnar, panel harga yang diselaraskan, CSV, interop GraviFrame |
 | `Gravicode.Finance.TimeSeries` | Return, drawdown, statistik rolling O(n), katalog 248 indikator, indikator streaming |
-| `Gravicode.Finance.MarketData` | Provider Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, CSV, sintetis; streaming; data ekonomi dan fundamental |
+| `Gravicode.Finance.MarketData` | Provider Yahoo Finance, Alpha Vantage, Polygon, Binance, Coinbase, Alpaca, OANDA, Bybit, OKX, IDX, CSV, sintetis; FRED dan SEC EDGAR; streaming; data ekonomi dan fundamental |
 | `Gravicode.Finance.AlternativeData` | Sentimen media sosial, analitik ESG, graf rantai pasok, analitik cuaca |
 | `Gravicode.Finance.Pricing` | Black-Scholes, Black-76, Bachelier, tree, Monte Carlo, Heston, SABR, kurva, obligasi, swap, swaption, CDS, produk terstruktur |
 | `Gravicode.Finance.Risk` | VaR/ES (historis, parametrik, Cornish-Fisher, Monte Carlo), backtest, stress test, simulasi, metrik kinerja, GARCH |
 | `Gravicode.Finance.Portfolio` | Mean-variance, Black-Litterman, risk parity, HRP, CVaR, alokasi diskrit |
 | `Gravicode.Finance.Backtesting` | Engine event-driven, backtester vektor, optimasi walk-forward, rebalancing portofolio |
-| `Gravicode.Finance.Execution` | OMS, broker paper/Binance/Interactive Brokers, FIX 4.4, TWAP/VWAP/POV/Iceberg, smart order routing, TCA |
+| `Gravicode.Finance.Execution` | OMS, broker paper/Binance/Alpaca/OANDA/Bybit/OKX/Interactive Brokers, klien socket TWS, FIX 4.4 / 5.0 SP2 dengan sesi persisten, TWAP/VWAP/POV/Iceberg, smart order routing, TCA |
 | `Gravicode.Finance.ML` | Tree, forest, boosting, model linear, labeling, purged CV, peramalan, RL (termasuk RLNet), riset faktor, SHAP |
 | `Gravicode.Finance.LLM` | Klien OpenAI, Azure OpenAI, Anthropic, Ollama, Hugging Face; asisten tool-calling; FinBERT |
 | `Gravicode.Finance.LLM.Local` | FinBERT lokal lewat HF.Net (tanpa API, tanpa kredit) |
