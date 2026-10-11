@@ -56,6 +56,47 @@ Console.WriteLine($"{bt.Exceptions}/{bt.Observations} exceptions (expected {bt.E
                   $"Kupiec p={bt.KupiecPValue:F3}, Christoffersen p={bt.ChristoffersenPValue:F3}, zone {bt.Zone}, passes {bt.Passes()}");
 ```
 
+## Advanced VaR models (v0.2)
+
+```csharp
+// Filtered historical simulation: GARCH(1,1)- or EWMA-filtered residuals rescaled to today's volatility.
+var fhs = AdvancedVar.FilteredHistorical(returns, 0.99);                    // .Estimate, .CurrentVolatility
+VarEstimate tenDay = AdvancedVar.FilteredHistoricalMultiPeriod(returns, horizon: 10, 0.99);
+
+// Extreme value theory: a Generalized Pareto tail fitted to losses above the 95% quantile.
+GpdTailFit tail = AdvancedVar.FitTail(returns, thresholdQuantile: 0.95);   // .Xi, .Beta, .ValueAtRisk(p)
+VarEstimate evt = AdvancedVar.ExtremeValue(returns, 0.999);
+
+// Liquidity: Bangia et al. spread add-on, and orderly liquidation over T days.
+double lvar = AdvancedVar.LiquidityAdjusted(marketVar: 0.021, spreadMean: 0.004, spreadStdDev: 0.0015);
+double liq10 = AdvancedVar.OrderlyLiquidation(oneDayVar: 0.021, days: 10);  // √((1+T)(1+2T)/(6T)), not √T
+
+// What-if trades on historical scenarios (rows = scenarios, columns = instruments).
+double dVar = AdvancedVar.IncrementalHistorical(weights, trade, scenarios, 0.99);
+double[] parts = AdvancedVar.ComponentHistorical(weights, scenarios, 0.99);
+double quick = AdvancedVar.IncrementalMarginal(weights, trade, covariance, 0.99); // Euler first-order
+```
+
+`VarMethod.FilteredHistorical` and `VarMethod.ExtremeValue` also work through `ValueAtRisk.Estimate`.
+
+## FRTB standardised approach (delta)
+
+```csharp
+var sens = new[]
+{
+    new GirrSensitivity("USD", TenorYears: 2, Sensitivity: 1_200_000),   // PV change per 1bp / 0.0001
+    new GirrSensitivity("USD", TenorYears: 10, Sensitivity: -800_000),
+    new GirrSensitivity("IDR", TenorYears: 5, Sensitivity: 300_000),
+};
+FrtbDeltaResult girr = FrtbSa.GirrDelta(sens, domesticCurrency: "IDR");
+Console.WriteLine($"{girr.Charge:N0} ({girr.Binding} correlation scenario)");
+```
+
+`FrtbSa.Aggregate` is the generic sensitivities-based engine: within-bucket Kᵦ, across-bucket
+aggregation with the alternative Sᵦ specification, and the max over the low / medium / high
+correlation scenarios. Use it for other risk classes by supplying your own weighted sensitivities
+and correlations. `GirrDelta` supplies the GIRR delta parameters as written in MAR21 (January 2019).
+
 ## Stress testing
 
 ```csharp
@@ -125,6 +166,13 @@ var (portVol, contrib, pct) = RiskAttribution.VolatilityContributions(weights, c
 ```
 
 ## Notes and limitations
+
+- FRTB: only the delta charge is implemented (GIRR parameters built in; other risk classes through
+  `Aggregate` with your parameters). Vega, curvature, the default-risk charge and the residual risk
+  add-on are not. Check the parameters against the text your supervisor applies before using the
+  numbers for regulatory capital.
+- EVT needs enough exceedances: `FitTail` refuses fewer than 10 losses above the threshold, and
+  `ExtremeValue` requires the confidence to lie beyond the threshold quantile.
 
 - The six historical stress scenarios use **rounded, stylised shock sizes**. They illustrate
   plausible magnitudes; they are not calibrated for regulatory use.

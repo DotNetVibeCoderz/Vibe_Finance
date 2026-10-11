@@ -58,6 +58,47 @@ Console.WriteLine($"{bt.Exceptions}/{bt.Observations} pelanggaran (harapan {bt.E
                   $"Kupiec p={bt.KupiecPValue:F3}, Christoffersen p={bt.ChristoffersenPValue:F3}, zona {bt.Zone}, lolos {bt.Passes()}");
 ```
 
+## Model VaR lanjutan (v0.2)
+
+```csharp
+// Filtered historical simulation: residual tersaring GARCH(1,1) atau EWMA diskalakan ke volatilitas hari ini.
+var fhs = AdvancedVar.FilteredHistorical(returns, 0.99);                    // .Estimate, .CurrentVolatility
+VarEstimate tenDay = AdvancedVar.FilteredHistoricalMultiPeriod(returns, horizon: 10, 0.99);
+
+// Teori nilai ekstrem: ekor Generalized Pareto dipasang pada kerugian di atas kuantil 95%.
+GpdTailFit tail = AdvancedVar.FitTail(returns, thresholdQuantile: 0.95);   // .Xi, .Beta, .ValueAtRisk(p)
+VarEstimate evt = AdvancedVar.ExtremeValue(returns, 0.999);
+
+// Likuiditas: add-on spread Bangia dkk., dan likuidasi bertahap selama T hari.
+double lvar = AdvancedVar.LiquidityAdjusted(marketVar: 0.021, spreadMean: 0.004, spreadStdDev: 0.0015);
+double liq10 = AdvancedVar.OrderlyLiquidation(oneDayVar: 0.021, days: 10);  // √((1+T)(1+2T)/(6T)), bukan √T
+
+// Transaksi what-if pada skenario historis (baris = skenario, kolom = instrumen).
+double dVar = AdvancedVar.IncrementalHistorical(weights, trade, scenarios, 0.99);
+double[] parts = AdvancedVar.ComponentHistorical(weights, scenarios, 0.99);
+double quick = AdvancedVar.IncrementalMarginal(weights, trade, covariance, 0.99); // orde pertama Euler
+```
+
+`VarMethod.FilteredHistorical` dan `VarMethod.ExtremeValue` juga bisa dipakai lewat `ValueAtRisk.Estimate`.
+
+## Pendekatan standar FRTB (delta)
+
+```csharp
+var sens = new[]
+{
+    new GirrSensitivity("USD", TenorYears: 2, Sensitivity: 1_200_000),   // perubahan PV per 1bp / 0.0001
+    new GirrSensitivity("USD", TenorYears: 10, Sensitivity: -800_000),
+    new GirrSensitivity("IDR", TenorYears: 5, Sensitivity: 300_000),
+};
+FrtbDeltaResult girr = FrtbSa.GirrDelta(sens, domesticCurrency: "IDR");
+Console.WriteLine($"{girr.Charge:N0} (skenario korelasi {girr.Binding})");
+```
+
+`FrtbSa.Aggregate` adalah mesin generik metode berbasis sensitivitas: Kᵦ dalam bucket, agregasi antar
+bucket dengan spesifikasi alternatif Sᵦ, dan maksimum dari skenario korelasi low / medium / high.
+Gunakan untuk kelas risiko lain dengan memberikan sensitivitas tertimbang dan korelasi Anda sendiri.
+`GirrDelta` menyediakan parameter delta GIRR sebagaimana tertulis di MAR21 (Januari 2019).
+
 ## Stress testing
 
 ```csharp
@@ -127,6 +168,13 @@ var (portVol, contrib, pct) = RiskAttribution.VolatilityContributions(weights, c
 ```
 
 ## Catatan dan batasan
+
+- FRTB: baru charge delta yang diimplementasikan (parameter GIRR bawaan; kelas risiko lain lewat
+  `Aggregate` dengan parameter Anda). Vega, curvature, default-risk charge dan residual risk add-on
+  belum. Periksa parameternya terhadap teks yang diterapkan regulator Anda sebelum memakai angkanya
+  untuk modal regulasi.
+- EVT memerlukan cukup exceedance: `FitTail` menolak kurang dari 10 kerugian di atas threshold, dan
+  `ExtremeValue` mensyaratkan tingkat keyakinan berada di luar kuantil threshold.
 
 - Enam skenario stress historis memakai **besaran guncangan yang dibulatkan dan bersifat ilustratif**.
   Angkanya menggambarkan magnitudo yang masuk akal, bukan kalibrasi untuk keperluan regulasi.

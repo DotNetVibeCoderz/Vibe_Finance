@@ -4,7 +4,7 @@ using Finance.Mathematics;
 namespace Finance.Risk;
 
 /// <summary>VaR estimation method.</summary>
-public enum VarMethod { Historical, ParametricNormal, ParametricStudentT, CornishFisher, MonteCarlo }
+public enum VarMethod { Historical, ParametricNormal, ParametricStudentT, CornishFisher, MonteCarlo, FilteredHistorical, ExtremeValue }
 
 /// <summary>
 /// A VaR / Expected Shortfall estimate. Both are reported as positive loss fractions
@@ -151,6 +151,8 @@ public static class ValueAtRisk
         VarMethod.ParametricStudentT => ParametricStudentT(returns, 5, confidence),
         VarMethod.CornishFisher => CornishFisher(returns, confidence),
         VarMethod.MonteCarlo => ParametricNormalMonteCarlo(returns, confidence),
+        VarMethod.FilteredHistorical => AdvancedVar.FilteredHistorical(returns, confidence).Estimate,
+        VarMethod.ExtremeValue => AdvancedVar.ExtremeValue(returns, confidence, thresholdQuantile: Math.Min(0.95, confidence - 0.02)),
         _ => throw new ArgumentOutOfRangeException(nameof(method)),
     };
 

@@ -29,8 +29,10 @@ Spesifikasi acuan adalah [solution-design.md](solution-design.md). Status harian
   candlestick patterns, rolling volume profile and market-profile TPO (done 2026-10-11).
 - **Pricing**: local volatility (Dupire) surfaces, Hull-White / G2++ short-rate models, Bermudan
   swaptions via LSMC, inflation and cross-currency swaps, ISDA-standard CDS (full CS01 conventions).
-- **Risk**: filtered historical simulation, EVT (peaks-over-threshold) VaR, liquidity-adjusted VaR,
-  incremental VaR for what-if trades, regulatory FRTB-SA sensitivities.
+- ✅ **Risk**: filtered historical simulation (1-day and bootstrapped multi-period), EVT
+  (peaks-over-threshold) VaR/ES, liquidity-adjusted VaR, historical incremental/component VaR for
+  what-if trades, FRTB-SA delta aggregation with GIRR parameters (done 2026-10-11). Open: FRTB
+  vega/curvature/DRC.
 - **Portfolio**: transaction-cost-aware rebalancing, turnover constraints, sector/factor exposure
   constraints, robust (resampled) frontiers, a proper interior-point QP for large universes.
 - **Backtesting**: tick-level / order-book replay engine, latency models, corporate actions and

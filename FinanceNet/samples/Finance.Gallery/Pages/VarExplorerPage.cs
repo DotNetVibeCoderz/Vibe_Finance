@@ -11,7 +11,7 @@ namespace Finance.Gallery.Pages;
 public sealed class VarExplorerPage : ModulePage
 {
     public override string Title => "VaR Explorer";
-    public override string Subtitle => "Historical, parametric, Cornish-Fisher and Monte Carlo VaR/ES, Kupiec & Christoffersen backtests, historical stress scenarios and simulation fans (Finance.Risk).";
+    public override string Subtitle => "Historical, parametric, Cornish-Fisher, filtered-historical (GARCH), extreme-value (GPD) and Monte Carlo VaR/ES, Kupiec & Christoffersen backtests, historical stress scenarios and simulation fans (Finance.Risk).";
     public override string Glyph => "σ";
     public override string Group => "Quant";
 
@@ -85,6 +85,8 @@ public sealed class VarExplorerPage : ModulePage
             ("Parametric normal", ValueAtRisk.ParametricNormal(port, conf)),
             ("Student-t (ν=5)", ValueAtRisk.ParametricStudentT(port, 5, conf)),
             ("Cornish-Fisher", ValueAtRisk.CornishFisher(port, conf)),
+            ("Filtered HS (GARCH)", AdvancedVar.FilteredHistorical(port, conf).Estimate),
+            ("Extreme value (GPD tail)", ValueAtRisk.Estimate(port, VarMethod.ExtremeValue, conf)),
             ("Monte Carlo (100k)", MonteCarloVar(w, conf)),
         };
         _methods.Content = Ui.DataTable(new[] { "Method", "VaR", "ES", "VaR on $1M" },
