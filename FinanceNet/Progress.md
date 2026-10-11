@@ -2,7 +2,7 @@
 
 > Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
 
-Last updated / Terakhir diperbarui: **2026-10-11** · Version **0.2.0**
+Last updated / Terakhir diperbarui: **2026-10-11** · Version **0.3.0**
 
 ## Summary / Ringkasan
 
