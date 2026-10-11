@@ -32,19 +32,12 @@ public sealed class LocalFinBertSentiment : IDisposable
     }
 
     /// <summary>
-    /// The revision used for <see cref="DefaultModel"/>. ProsusAI/finbert's main branch only carries a legacy
-    /// (pre-torch-1.6) <c>pytorch_model.bin</c>, which HF.Net does not read; Hugging Face's own conversion bot
-    /// (SFconvertbot) publishes the same weights as <c>model.safetensors</c> on this pull-request ref.
+    /// Downloads (first time only) and loads a Hub checkpoint at <paramref name="revision"/> (a branch, tag or
+    /// commit). Both safetensors and <c>pytorch_model.bin</c> work, including the legacy pre-torch-1.6 layout
+    /// ProsusAI/finbert ships. Set <c>HF_TOKEN</c> for gated repositories.
     /// </summary>
-    public const string DefaultModelRevision = "refs/pr/29";
-
-    /// <summary>
-    /// Downloads (first time only) and loads a Hub checkpoint. <paramref name="revision"/> defaults to
-    /// <see cref="DefaultModelRevision"/> for <see cref="DefaultModel"/> and to <c>main</c> otherwise.
-    /// Set <c>HF_TOKEN</c> for gated repositories.
-    /// </summary>
-    public static LocalFinBertSentiment Load(string repoId = DefaultModel, string? revision = null)
-        => new(TransformerModel.Load(repoId, revision ?? (repoId == DefaultModel ? DefaultModelRevision : "main")));
+    public static LocalFinBertSentiment Load(string repoId = DefaultModel, string revision = "main")
+        => new(TransformerModel.Load(repoId, revision));
 
     /// <summary>Loads a checkpoint from a local folder (config.json, weights and tokenizer files).</summary>
     public static LocalFinBertSentiment Open(string directory) => new(TransformerModel.Open(directory));

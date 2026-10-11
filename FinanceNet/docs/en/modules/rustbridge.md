@@ -31,7 +31,7 @@ FastIndicators / FastRisk / FastPricing      (public C# API, spans in and out)
 ```csharp
 using Finance.RustBridge;
 
-Console.WriteLine(RustAccelerator.Describe());       // e.g. "Rust accelerator 0.1.0 (path)" or "... unavailable - managed kernels in use"
+Console.WriteLine(RustAccelerator.Describe());       // e.g. "Rust accelerator 0.2.0 (path)" or "... unavailable - managed kernels in use"
 bool native = RustAccelerator.IsAvailable;           // loaded and not forced off
 string? version = RustAccelerator.NativeVersion;
 string? why = RustAccelerator.LoadError;

@@ -129,10 +129,9 @@ var model = new DelegateSentimentModel("FinBERT", async (text, ct) =>
 
 The checkpoint goes into the shared Hugging Face cache (`HF_HUB_CACHE` / `HF_HOME`), so Python and
 .NET share one copy. `LocalFinBertSentiment.Open(dir)` reads a local folder instead. Measured on a
-4-core laptop: about **100 ms per sentence**. ProsusAI/finbert's `main` branch only has a legacy
-(pre-torch-1.6) `pytorch_model.bin`, which HF.Net 0.8.0 cannot read, so `Load()` uses the
-safetensors conversion that Hugging Face's own bot published (`refs/pr/29`, exposed as
-`DefaultModelRevision`); both files give identical probabilities.
+4-core laptop: about **100 ms per sentence**. ProsusAI/finbert ships only a legacy (pre-torch-1.6)
+`pytorch_model.bin`; HF.Net 0.8.1 reads it directly. `Load(repoId, revision)` takes any branch, tag
+or commit.
 
 ## Notes and limitations
 

@@ -2,7 +2,7 @@
 
 > Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
 
-Last updated / Terakhir diperbarui: **2026-10-11** · Version **0.1.0** published, next **0.2.0** in progress
+Last updated / Terakhir diperbarui: **2026-10-11** · Version **0.2.0**
 
 ## Summary / Ringkasan
 
@@ -51,7 +51,7 @@ PhraseBank-style positive/negative/neutral sentences classified correctly, ~100 
 | Finance.Execution | ✅ | OMS, paper broker, FIX 4.4 + session, Binance & IBKR adapters, TWAP/VWAP/POV/Iceberg, SOR, pre-trade risk, TCA. Binance WS and IBKR not tested live |
 | Finance.ML | ✅ | Features, labelling, frac-diff, purged CV, linear/trees/forest/GBM, AR/ARIMA/Holt-Winters, Q-learning + **Gravicode.RLNet DQN/PPO**, factors, Alphalens-style research, SHAP, PDP/ICE |
 | Finance.LLM | ✅ | OpenAI/Azure/Anthropic/Ollama/HF/DeepSeek, SSE streaming, tool calling, FinancialAssistant, FinGPT-style tasks, FinBERT (hosted) |
-| Finance.LLM.Local | ✅ | FinBERT in-process via HF.Net 0.8.0; loads ProsusAI/finbert from the safetensors conversion (`refs/pr/29`). Separate package so Finance.LLM stays dependency-free |
+| Finance.LLM.Local | ✅ | FinBERT in-process via HF.Net 0.8.1 (which gained legacy `pytorch_model.bin` support for ProsusAI/finbert). Separate package so Finance.LLM stays dependency-free |
 | Finance.NewsAnalytics | ✅ | RSS/Atom, lexicon sentiment, entities, events, MinHash, earnings calls, per-ticker intelligence |
 | Finance.Visualization | ✅ | SVG charts (dark/light), HTML tearsheets |
 | Finance.GPU | ✅ | ILGPU CUDA/OpenCL/CPU: MC European/Asian, batch BSM, MC VaR. DirectML/Vulkan unavailable (ILGPU limitation) |
@@ -74,11 +74,10 @@ Carlo pricing (2.2-2.8×) and Monte Carlo VaR (2.4×).
 
 - [x] Publish `Gravicode.Finance.*` 0.1.0 to nuget.org (2026-10-10)
 - [x] Indicator catalogue to 200+ — 248 entries (2026-10-11)
-- [x] Local FinBERT through HF.Net (2026-10-11) — `Gravicode.Finance.LLM.Local`, not yet on nuget.org
+- [x] Local FinBERT through HF.Net (2026-10-11) — `Gravicode.Finance.LLM.Local`, first published in 0.2.0
 - [x] Linux/macOS native binaries for the Rust crate — CI matrix since 0.1.0
 - [x] CI actions on current majors (checkout v7, setup-dotnet v6, upload-artifact v7, download-artifact v8)
-- [ ] HF.Net: legacy `pytorch_model.bin` support is fixed in the HF.Net repo (not yet released); once
-  released, `LocalFinBertSentiment` can load ProsusAI/finbert `main` directly
+- [x] HF.Net 0.8.1 released (2026-10-11) with legacy `pytorch_model.bin` support; FinBERT loads `main`
 - [ ] HF.Net depends on ImageSharp 3.1.12 (5 advisories, fix only in licence-keyed 4.x); suppressed in
   `Directory.Build.props` because FinBERT never touches image code
 - [x] Run the full BenchmarkDotNet suites (2026-10-11, results in docs/en/benchmarks.md)

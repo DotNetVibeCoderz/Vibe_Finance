@@ -19,7 +19,7 @@ public static class RustAccelerator
     /// <summary>True when the library loaded, regardless of <see cref="ForceManaged"/>.</summary>
     public static bool IsLoaded => State.Value.Ok;
 
-    /// <summary>Native library version ("0.1.0"), or null when unavailable.</summary>
+    /// <summary>Native library version (e.g. "0.2.0"), or null when unavailable.</summary>
     public static string? NativeVersion => State.Value.Version;
 
     /// <summary>Why loading failed, or null.</summary>

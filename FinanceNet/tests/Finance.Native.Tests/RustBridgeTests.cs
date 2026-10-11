@@ -23,7 +23,7 @@ public class RustBridgeTests
     public void NativeLibraryIsLoaded()
     {
         Assert.True(RustAccelerator.IsLoaded, RustAccelerator.LoadError);
-        Assert.Equal("0.1.0", RustAccelerator.NativeVersion);
+        Assert.Equal(Finance.Core.FinanceInfo.Version, RustAccelerator.NativeVersion); // crate and assemblies move in lockstep
         Assert.Contains("Rust accelerator", RustAccelerator.Describe());
     }
 
