@@ -67,10 +67,16 @@ v0.4 is complete (2026-10-12). Open: TFT static covariates and multi-series trai
 
 ## v0.5 — Acceleration / Akselerasi
 
-- DirectML and Vulkan compute backends (ILGPU has neither today; needs a separate kernel path).
-- ROCm/HIP native backend (today AMD GPUs are reached through OpenCL).
-- Rust kernels for the full indicator catalogue and for HRP clustering; SIMD (AVX-512) paths.
-- ✅ Publish native binaries for linux-x64, osx-arm64 alongside win-x64 (since 0.1.0, built in CI).
+- ✅ Vulkan compute backend: `finance_gpu` Rust crate (wgpu 24, WGSL with f64/i64), verified on Intel UHD 620.
+- ✅ DirectML backend as Direct3D 12 compute (HLSL → DXIL SM 6.0, precompiled; any FP64 DX12 GPU or WARP), verified
+  on Intel UHD 620 and WARP. DirectML's own operators are FP16/FP32 tensor ops, so the FP64 kernels use the D3D12 layer.
+- ✅ ROCm/HIP native backend (hiprtc at run time); kernel source checked on the host, not yet run on AMD hardware.
+- ✅ Rust kernels for the full indicator catalogue (248 entries, parity-tested) and for HRP clustering (identical
+  dendrogram and weights); runtime-dispatched SIMD (baseline / AVX2 / AVX-512F, bit-identical results).
+- ✅ Publish native binaries for linux-x64, osx-arm64 alongside win-x64 (since 0.1.0, built in CI; finance_gpu since 0.9.0).
+
+v0.5 is complete (2026-10-12). Open: run the HIP backend on an AMD GPU; execute the AVX-512 path on a CPU that has it
+(CI runners may); vectorised exp/log for batch Black-Scholes; persistent GPU buffers to cut per-call overhead.
 
 ## Always / Selalu
 

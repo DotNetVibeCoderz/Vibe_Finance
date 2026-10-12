@@ -8,7 +8,7 @@ Finance.Net is a quantitative-finance platform for **.NET 10**. It brings the ca
 Python finance ecosystem into one native, strongly typed library: QuantLib-style pricing,
 PyPortfolioOpt portfolio construction, pyfolio performance analytics, Alphalens factor research,
 Zipline/Backtrader backtesting, FinRL reinforcement learning and FinGPT-style language tools. Hot
-paths can run on **Rust** kernels (`Finance.RustBridge`) or on the **GPU** (`Finance.GPU`, ILGPU).
+paths can run on **Rust** kernels (`Finance.RustBridge`) or on the **GPU** (`Finance.GPU`: CUDA, OpenCL, ROCm, Vulkan, Direct3D 12).
 
 It is built on the author's own foundation libraries:
 **Gravicode.Science** (GraviNum for linear algebra and GraviFrame for data frames), **HF.Net**,
@@ -63,7 +63,7 @@ flowchart TB
         NA[Finance.NewsAnalytics<br/>RSS, sentiment, events]
     end
     subgraph Acceleration
-        GPU[Finance.GPU<br/>ILGPU kernels]
+        GPU[Finance.GPU<br/>ILGPU · HIP · Vulkan · D3D12]
         RB[Finance.RustBridge<br/>Rust kernels + managed fallback]
     end
     VIS[Finance.Visualization<br/>SVG charts, HTML tearsheets]
@@ -105,8 +105,8 @@ All packages target `net10.0`. NuGet IDs follow the pattern `Gravicode.<ProjectN
 | `Gravicode.Finance.LLM.Local` | FinBERT run locally through HF.Net (no API, no credits) |
 | `Gravicode.Finance.NewsAnalytics` | RSS reader, finance lexicon sentiment, entity and event extraction, MinHash de-duplication, earnings calls |
 | `Gravicode.Finance.Visualization` | Dependency-free SVG charts and self-contained HTML tearsheets |
-| `Gravicode.Finance.GPU` | ILGPU Monte Carlo pricing, batch Black-Scholes, Monte Carlo VaR |
-| `Gravicode.Finance.RustBridge` | Rust kernels (indicators, VaR, pricing, Monte Carlo) with an identical managed fallback |
+| `Gravicode.Finance.GPU` | GPU Monte Carlo pricing, batch Black-Scholes, Monte Carlo VaR (ILGPU, HIP, Vulkan, Direct3D 12) |
+| `Gravicode.Finance.RustBridge` | Rust kernels (full indicator catalogue, HRP, VaR, SIMD covariance, pricing, Monte Carlo) with an identical managed fallback |
 
 ## Install
 

@@ -54,8 +54,8 @@
 | `Gravicode.Finance.LLM.Local` | **Local FinBERT** run in-process through HF.Net — no hosted API or credits (separate so `Finance.LLM` stays dependency-free) |
 | `Gravicode.Finance.NewsAnalytics` | RSS/Atom, finance sentiment lexicon, ticker/entity extraction, event classification, MinHash de-duplication, earnings-call analysis |
 | `Gravicode.Finance.Visualization` | Dependency-free SVG charts (candles, lines, frontier, heatmaps, histograms) and self-contained HTML tearsheets |
-| `Gravicode.Finance.GPU` | ILGPU (CUDA / OpenCL / CPU) Monte Carlo pricing, batch Black-Scholes, Monte Carlo VaR |
-| `Gravicode.Finance.RustBridge` | Rust `finance_native` kernels (indicators, VaR, Black-Scholes, Monte Carlo) with an identical managed fallback |
+| `Gravicode.Finance.GPU` | GPU Monte Carlo pricing, batch Black-Scholes, Monte Carlo VaR on CUDA / OpenCL / CPU (ILGPU), ROCm (HIP), Vulkan and Direct3D 12 |
+| `Gravicode.Finance.RustBridge` | Rust `finance_native` kernels (all 248 catalogue indicators, HRP, VaR, covariance with AVX2/AVX-512, Black-Scholes, Monte Carlo) with an identical managed fallback |
 
 ## Quick start
 
@@ -144,10 +144,10 @@ Requirements: .NET 10 SDK; optional Rust 1.80+ for native kernels; optional CUDA
 
 ## Honest limitations
 
-- ILGPU has no DirectML or Vulkan backend — `Finance.GPU` reports those as unavailable; AMD (ROCm-class)
-  GPUs are reached through OpenCL.
+- The native ROCm/HIP backend has not been run on AMD hardware (none available during development); its kernel
+  source was checked on the host. The `DirectML` backend runs Direct3D 12 compute shaders, not DirectML operators.
 - Historical stress scenarios use stylised, rounded shocks for illustration, not regulatory use.
-- Hosted FinBERT needs Hugging Face Inference credits; a local HF.Net path is planned.
+- Hosted FinBERT needs Hugging Face Inference credits; `Gravicode.Finance.LLM.Local` runs FinBERT in-process instead.
 - Reddit's unauthenticated API is often rate-limited; the Gallery falls back to labelled synthetic posts.
 
 ## Project files

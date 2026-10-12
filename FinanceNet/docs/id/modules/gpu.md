@@ -3,8 +3,9 @@
 [← Indeks](../index.md) · [English](../../en/modules/gpu.md) · Paket: `Gravicode.Finance.GPU`
 
 Pricing opsi Monte Carlo, Black-Scholes batch beserta Greeks, dan VaR portofolio Monte Carlo yang
-dipercepat GPU, ditulis sebagai kernel **ILGPU**. Kode yang sama berjalan di CUDA, OpenCL, atau CPU
-accelerator milik ILGPU, dengan pemilihan perangkat dan fallback otomatis.
+dipercepat GPU. Kernel berjalan di empat engine dengan semantik dan bilangan acak yang identik: **ILGPU**
+(CUDA, OpenCL, CPU accelerator), **HIP native** (AMD ROCm), compute **Vulkan**, dan compute **Direct3D 12**
+(backend `DirectML`), dengan pemilihan perangkat dan fallback otomatis.
 
 Namespace: `Finance.GPU`.
 
@@ -27,22 +28,31 @@ using Finance.GPU;
 foreach (GpuDeviceInfo d in GpuContext.ListDevices())
     Console.WriteLine(d);                       // nama, backend, memori, dukungan FP64, bisa dipakai?
 
-using GpuContext ctx = GpuContext.CreateBest(allowCpu: true);   // CUDA → OpenCL (FP64) → CPU accelerator
+using GpuContext ctx = GpuContext.CreateBest(allowCpu: true);   // CUDA → ROCm → OpenCL (FP64) → Vulkan → Direct3D 12 → CPU
 Console.WriteLine($"{ctx.Device.Name} via {ctx.Backend}{(ctx.FallbackReason is { } why ? $" (fallback: {why})" : "")}");
 
-using GpuContext cuda = GpuContext.Create(GpuBackend.Cuda);     // melempar exception jika tidak tersedia
+using GpuContext cuda = GpuContext.Create(GpuBackend.Cuda);     // melempar NotSupportedException (beserta alasannya) jika tidak tersedia
+using GpuContext warp = GpuContext.Create(GpuContext.ListDevices().First(d => d.Name.Contains("WARP")));   // satu perangkat dari daftar
 ```
 
-| `GpuBackend` | Status |
-|---|---|
-| `Cuda` | Didukung (NVIDIA, lewat ILGPU) |
-| `OpenCL` | Didukung untuk perangkat dengan presisi ganda (Intel, AMD, NVIDIA) |
-| `Cpu` | Didukung (CPU accelerator ILGPU; selalu tersedia) |
-| `Rocm` | Dipetakan ke perangkat **OpenCL** AMD jika ada; jika tidak, melempar exception beserta penjelasannya |
-| `DirectML` | **Tidak tersedia** — ILGPU tidak punya backend DirectML; `Create` melempar `NotSupportedException` |
-| `Vulkan` | **Tidak tersedia** — ILGPU tidak punya backend compute Vulkan; `Create` melempar `NotSupportedException` |
+| `GpuBackend` | Engine | Status |
+|---|---|---|
+| `Cuda` | ILGPU (PTX) | Didukung (NVIDIA) |
+| `OpenCL` | ILGPU | Didukung untuk perangkat dengan presisi ganda (Intel, AMD, NVIDIA) |
+| `Cpu` | CPU accelerator ILGPU | Selalu tersedia |
+| `Rocm` | HIP native: kernel C++ dikompilasi saat runtime dengan hiprtc | Butuh AMD HIP SDK (Windows) atau ROCm (Linux); tanpa itu dipakai perangkat OpenCL AMD. **Belum diverifikasi di hardware AMD** (tidak tersedia); source kernel diperiksa di host terhadap rumus tertutup dan RNG referensi |
+| `Vulkan` | Library native `finance_gpu` (Rust, wgpu 24, WGSL dengan f64/i64) | Perangkat dengan `shaderFloat64` + `shaderInt64`; terverifikasi di Intel UHD 620 |
+| `DirectML` | Compute shader Direct3D 12 (HLSL → DXIL, shader model 6.0, dikompilasi sebelumnya) | GPU DirectX 12 apa pun dengan shader presisi ganda, atau WARP (perangkat software bawaan Windows); khusus Windows; terverifikasi di Intel UHD 620 dan WARP |
 
-`GpuBackendSupport.UnsupportedReason(backend)` mengembalikan teks penjelasannya.
+`DirectML` sendiri adalah library operator tensor FP16/FP32 tanpa operator transendental presisi ganda; backend ini
+menjalankan kernel FP64 Finance.GPU di lapisan compute Direct3D 12 yang menjadi dasar DirectML.
+`GpuBackendSupport.UnsupportedReason(backend)` menjelaskan mengapa sebuah backend tidak punya perangkat di mesin ini.
+
+Cara engine non-ILGPU menjaga presisi ganda penuh: SPIR-V dan DXIL tidak punya `exp`/`log`/`cos` 64-bit, jadi
+kernel mengimplementasikannya sendiri (reduksi rentang + polinomial, galat relatif ~1e-16). Kernel Direct3D 12
+juga menghindari instruksi opsional "extended double" (pembagian, konversi int↔double) dan integer 64-bit, sehingga
+berjalan di perangkat apa pun yang mendukung double. Tes paritas membandingkan setiap engine dengan referensi host:
+jumlah Monte Carlo cocok hingga 1e-9 relatif, Black-Scholes batch 1e-10, VaR 1e-12.
 
 ## Pricing
 
@@ -84,7 +94,15 @@ Bilangan normal berkorelasi dibuat melalui faktor Cholesky dari matriks kovarian
 - Panggilan pertama pada sebuah context mengompilasi kernel (JIT); lakukan pemanasan sebelum mengukur
   waktu.
 - Belum ada VaR historis di GPU (untuk ukuran umum, pengurutan lebih murah di CPU atau Rust).
-- DirectML dan Vulkan ada di roadmap dan membutuhkan jalur kernel tersendiri.
+- Terukur di Intel UHD 620 yang sama (warm, terbaik dari 2): MC Eropa 4 juta jalur — OpenCL 19 ms, Direct3D 12
+  28 ms, Vulkan 31 ms, WARP 147 ms, CPU ILGPU 150 ms; Black-Scholes batch 1 juta — OpenCL 79 ms, Direct3D 12 110 ms,
+  Vulkan 168 ms; VaR 1 juta skenario — OpenCL 141 ms, Vulkan 157 ms, Direct3D 12 180 ms. `exp`/`log` polinomial dan
+  pembuatan buffer per panggilan membuat Vulkan/Direct3D 12 lebih lambat dari OpenCL di GPU ini; keduanya berguna
+  ketika OpenCL tidak ada (banyak perangkat Windows-on-ARM, cloud, dan AMD konsumen).
+- wgpu 24 dipakai dengan sengaja: wgpu 30 crash di dalam `vkCreateDevice` pada driver Vulkan Intel (2022).
+- Shader Direct3D 12 dikompilasi sebelumnya: setelah mengubah `Kernels/finance.hlsl`, jalankan
+  `Kernels/compile-dxil.ps1` (sebuah tes gagal selama DXIL yang tertanam basi). Bytecode shader model 5.1 dari FXC
+  sempat dicoba dan mengeksekusi select dan store presisi ganda dengan salah, baik di driver Intel maupun WARP.
 
 ---
 

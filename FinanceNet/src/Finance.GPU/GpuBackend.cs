@@ -9,11 +9,15 @@ public enum GpuBackend
     Cuda,
     /// <summary>OpenCL 2.0+ devices (Intel, AMD, NVIDIA) through ILGPU.</summary>
     OpenCL,
-    /// <summary>AMD ROCm. ILGPU has no native ROCm/HIP backend; AMD GPUs are reached through their OpenCL driver.</summary>
+    /// <summary>AMD ROCm: native HIP kernels compiled with hiprtc; without the HIP runtime, AMD GPUs are reached through OpenCL.</summary>
     Rocm,
-    /// <summary>DirectML. Not supported by ILGPU - reported as unavailable.</summary>
+    /// <summary>
+    /// Direct3D 12 compute shaders on any DirectX 12 GPU with double-precision shader support (or WARP, the Windows
+    /// software rasteriser). DirectML itself is an FP16/FP32 tensor-operator library; Finance.GPU's FP64 Monte Carlo
+    /// kernels run on the Direct3D 12 layer that DirectML is built on. Windows only.
+    /// </summary>
     DirectML,
-    /// <summary>Vulkan compute. Not supported by ILGPU - reported as unavailable.</summary>
+    /// <summary>Vulkan compute through the finance_gpu native library (wgpu); needs shaderFloat64 and shaderInt64.</summary>
     Vulkan,
 }
 
@@ -36,25 +40,29 @@ public sealed record GpuDeviceInfo(
     bool IsUsable,
     string? Note)
 {
-    /// <summary>Index into ILGPU's device list, or -1 for backends that have no device.</summary>
+    /// <summary>Index into the owning engine's device list (ILGPU, HIP, Vulkan or DXGI adapter), or -1 when there is no device.</summary>
     internal int ContextIndex { get; init; } = -1;
 
     public override string ToString() => !IsUsable
         ? $"{Backend}: unavailable - {Note}"
         : Backend == GpuBackend.Cpu
             ? $"{Backend}: {Name} (host memory, {Environment.ProcessorCount} threads)"
-            : $"{Backend}: {Name} ({MemoryBytes / (1024 * 1024)} MB, {Multiprocessors} CUs)";
+            : MemoryBytes <= 0
+                ? $"{Backend}: {Name} ({Note})"
+                : $"{Backend}: {Name} ({MemoryBytes / (1024 * 1024)} MB{(Multiprocessors > 0 ? $", {Multiprocessors} CUs" : "")})";
 }
 
 /// <summary>Messages explaining what each backend can and cannot do.</summary>
 public static class GpuBackendSupport
 {
-    /// <summary>Message for backends ILGPU cannot drive.</summary>
+    /// <summary>Why a backend has no usable device on this machine (null for backends that are always present).</summary>
     public static string? UnsupportedReason(GpuBackend backend) => backend switch
     {
-        GpuBackend.DirectML => "DirectML is not supported: ILGPU (the GPU compiler behind Finance.GPU) targets CUDA, OpenCL and CPU only. Use CUDA or OpenCL on the same GPU.",
-        GpuBackend.Vulkan => "Vulkan compute is not supported: ILGPU has no SPIR-V/Vulkan backend. Use CUDA or OpenCL on the same GPU.",
-        GpuBackend.Rocm => "ROCm has no native ILGPU backend; AMD GPUs are used through the OpenCL driver that ships with ROCm/Adrenalin. No AMD OpenCL device was found.",
+        GpuBackend.DirectML => OperatingSystem.IsWindows()
+            ? "no Direct3D 12 adapter with double-precision shader support was found"
+            : "Direct3D 12 (the DirectML backend) is available on Windows only",
+        GpuBackend.Vulkan => VulkanEngine.Unavailable ?? "no Vulkan device with shaderFloat64/shaderInt64 was found",
+        GpuBackend.Rocm => (HipEngine.Unavailable ?? "no HIP device") + "; no AMD OpenCL device was found either",
         _ => null,
     };
 }

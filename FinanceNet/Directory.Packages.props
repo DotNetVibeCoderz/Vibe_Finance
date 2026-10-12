@@ -20,6 +20,7 @@
 
     <!-- GPU -->
     <PackageVersion Include="ILGPU" Version="1.5.3" />
+    <PackageVersion Include="Vortice.Direct3D12" Version="3.8.3" />
     <PackageVersion Include="ILGPU.Algorithms" Version="1.5.3" />
 
     <!-- Gallery (Avalonia) -->

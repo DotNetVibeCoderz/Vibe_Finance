@@ -35,9 +35,30 @@ public static class RustAccelerator
     /// </summary>
     public static bool ForceManaged { get; set; } = Environment.GetEnvironmentVariable("FINANCE_NATIVE_DISABLE") == "1";
 
+    /// <summary>
+    /// SIMD level the native kernels use: <see cref="NativeSimdLevel.Scalar"/> (SSE2/NEON baseline),
+    /// <see cref="NativeSimdLevel.Avx2"/> or <see cref="NativeSimdLevel.Avx512"/>. Detected from CPUID; can be lowered for
+    /// comparisons (every level returns bit-identical results) or with <c>FINANCE_NATIVE_SIMD=scalar|avx2|avx512</c>.
+    /// Setting a level the CPU lacks selects the highest supported one.
+    /// </summary>
+    public static NativeSimdLevel SimdLevel
+    {
+        get => IsLoaded ? (NativeSimdLevel)SafeSimd(NativeMethods.SimdLevel) : NativeSimdLevel.Scalar;
+        set { if (IsLoaded) SafeSimd(() => NativeMethods.SetSimdLevel((int)value)); }
+    }
+
+    /// <summary>Highest SIMD level this CPU supports (as seen by the native library).</summary>
+    public static NativeSimdLevel SupportedSimdLevel => IsLoaded ? (NativeSimdLevel)SafeSimd(NativeMethods.SimdSupported) : NativeSimdLevel.Scalar;
+
+    private static int SafeSimd(Func<int> f)
+    {
+        try { return f(); }
+        catch (EntryPointNotFoundException) { return 0; }   // native library older than 0.9
+    }
+
     /// <summary>One-line description for logs and UIs.</summary>
     public static string Describe() => IsLoaded
-        ? $"Rust accelerator {NativeVersion} ({LibraryPath ?? "default search path"}){(ForceManaged ? " - disabled, using managed kernels" : "")}"
+        ? $"Rust accelerator {NativeVersion} ({LibraryPath ?? "default search path"}, SIMD {SimdLevel.ToString().ToLowerInvariant()}){(ForceManaged ? " - disabled, using managed kernels" : "")}"
         : $"Rust accelerator unavailable - managed kernels in use ({LoadError})";
 
     [ModuleInitializer]
@@ -97,4 +118,15 @@ public static class RustAccelerator
             return (false, null, e.Message, null);
         }
     }
+}
+
+/// <summary>SIMD instruction sets used by the native kernels.</summary>
+public enum NativeSimdLevel
+{
+    /// <summary>Baseline vector width of the target (SSE2 on x86-64, NEON on arm64).</summary>
+    Scalar = 0,
+    /// <summary>AVX2 + FMA (256-bit).</summary>
+    Avx2 = 1,
+    /// <summary>AVX-512F (512-bit).</summary>
+    Avx512 = 2,
 }

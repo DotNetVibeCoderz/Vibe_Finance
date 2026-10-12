@@ -1,4 +1,5 @@
-# Finance.Net CI: builds the Rust kernels for win-x64 / linux-x64 / osx-arm64, runs the full .NET test
+# Finance.Net CI: builds the Rust crates (finance-native: CPU kernels; finance-gpu: Vulkan compute) for
+# win-x64 / linux-x64 / osx-arm64, runs the full .NET test
 # suite on Windows and Linux, and packs all Gravicode.Finance.* packages with every native binary.
 #
 # Lives at the repository root because GitHub only reads `.github/workflows/` there; the project itself is
@@ -39,9 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { rid: win-x64,   os: windows-latest, file: finance_native.dll }
-          - { rid: linux-x64, os: ubuntu-latest,  file: libfinance_native.so }
-          - { rid: osx-arm64, os: macos-latest,   file: libfinance_native.dylib }
+          - { rid: win-x64,   os: windows-latest, prefix: "",    ext: dll }
+          - { rid: linux-x64, os: ubuntu-latest,  prefix: "lib", ext: so }
+          - { rid: osx-arm64, os: macos-latest,   prefix: "lib", ext: dylib }
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -51,10 +52,19 @@ jobs:
       - name: cargo build
         working-directory: FinanceNet/native/finance-native
         run: cargo build --release
+      # Runners have no Vulkan FP64 device, so the GPU kernel tests skip; they still compile the crate and shaders.
+      - name: cargo test (finance-gpu)
+        working-directory: FinanceNet/native/finance-gpu
+        run: cargo test --release
+      - name: cargo build (finance-gpu)
+        working-directory: FinanceNet/native/finance-gpu
+        run: cargo build --release
       - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.rid }}
-          path: FinanceNet/native/finance-native/target/release/${{ matrix.file }}
+          path: |
+            FinanceNet/native/finance-native/target/release/${{ matrix.prefix }}finance_native.${{ matrix.ext }}
+            FinanceNet/native/finance-gpu/target/release/${{ matrix.prefix }}finance_gpu.${{ matrix.ext }}
           if-no-files-found: error
 
   test:
@@ -74,7 +84,7 @@ jobs:
         with:
           pattern: native-*
           merge-multiple: true
-          path: FinanceNet/native/finance-native/target/release
+          path: FinanceNet/native
       - name: Build
         run: dotnet build FinanceNet.slnx -c Release -p:SkipRustBuild=true
       - name: Test
@@ -96,7 +106,7 @@ jobs:
         with:
           pattern: native-*
           merge-multiple: true
-          path: FinanceNet/native/finance-native/target/release
+          path: FinanceNet/native
       - name: Pack every library
         shell: bash
         run: |
@@ -109,10 +119,14 @@ jobs:
       - name: Check native binaries are packed
         shell: bash
         run: |
-          pkg=$(ls artifacts/packages/Gravicode.Finance.RustBridge.*.nupkg)
-          for f in runtimes/win-x64/native/finance_native.dll runtimes/linux-x64/native/libfinance_native.so runtimes/osx-arm64/native/libfinance_native.dylib; do
-            unzip -l "$pkg" | grep -q "$f" || { echo "::error::$f missing from $pkg"; exit 1; }
-          done
+          check() {
+            pkg=$(ls artifacts/packages/Gravicode.Finance.$1.*.nupkg | grep -v snupkg)
+            for f in runtimes/win-x64/native/$2.dll runtimes/linux-x64/native/lib$2.so runtimes/osx-arm64/native/lib$2.dylib; do
+              unzip -l "$pkg" | grep -q "$f" || { echo "::error::$f missing from $pkg"; exit 1; }
+            done
+          }
+          check RustBridge finance_native
+          check GPU finance_gpu
       - uses: actions/upload-artifact@v7
         with:
           name: financenet-packages

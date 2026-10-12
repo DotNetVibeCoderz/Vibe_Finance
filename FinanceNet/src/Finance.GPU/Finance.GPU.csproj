@@ -2,6 +2,10 @@
 
   <PropertyGroup>
     <RootNamespace>Finance.GPU</RootNamespace>
+    <!-- The Vulkan engine's Rust crate. `-p:SkipRustBuild=true` uses whatever binary is already built. -->
+    <FinanceGpuDir>$(MSBuildThisFileDirectory)../../native/finance-gpu/</FinanceGpuDir>
+    <FinanceGpuOut>$(FinanceGpuDir)target/release/</FinanceGpuOut>
+    <SkipRustBuild Condition="'$(SkipRustBuild)' == ''">false</SkipRustBuild>
   </PropertyGroup>
 
   <ItemGroup>
@@ -9,11 +13,41 @@
     <ProjectReference Include="../Finance.Math/Finance.Math.csproj" />
     <PackageReference Include="ILGPU" />
     <PackageReference Include="ILGPU.Algorithms" />
+    <PackageReference Include="Vortice.Direct3D12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Kernels/finance.hlsl" LogicalName="Finance.GPU.Kernels.finance.hlsl" />
+    <EmbeddedResource Include="Kernels/dxil/*.dxil" LogicalName="Finance.GPU.Kernels.dxil.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Kernels/dxil/finance.hlsl.sha256" LogicalName="Finance.GPU.Kernels.dxil.finance.hlsl.sha256" />
+    <EmbeddedResource Include="Kernels/finance.hip" LogicalName="Finance.GPU.Kernels.finance.hip" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- ILGPU's CPU accelerator emits a dynamic assembly that must see the internal kernel argument structs. -->
     <InternalsVisibleTo Include="ILGPURuntime" />
   </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Finance.Native.Tests" />
+  </ItemGroup>
+
+  <!-- Build finance_gpu when cargo is on PATH; without it the Vulkan backend reports itself unavailable. -->
+  <Target Name="BuildFinanceGpu" BeforeTargets="BeforeBuild" Condition="'$(SkipRustBuild)' != 'true'">
+    <Exec Command="cargo --version" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ExitCode" PropertyName="_CargoExitCode" />
+    </Exec>
+    <Exec Condition="'$(_CargoExitCode)' == '0'" Command="cargo build --release" WorkingDirectory="$(FinanceGpuDir)" />
+    <Message Condition="'$(_CargoExitCode)' != '0'" Importance="high" Text="Finance.GPU: cargo not found - building without the Vulkan engine." />
+  </Target>
+
+  <Target Name="IncludeFinanceGpu" BeforeTargets="AssignTargetPaths;_GetPackageFiles">
+    <ItemGroup>
+      <_FinanceGpu Include="$(FinanceGpuOut)finance_gpu.dll" Rid="win-x64" Condition="Exists('$(FinanceGpuOut)finance_gpu.dll')" />
+      <_FinanceGpu Include="$(FinanceGpuOut)libfinance_gpu.so" Rid="linux-x64" Condition="Exists('$(FinanceGpuOut)libfinance_gpu.so')" />
+      <_FinanceGpu Include="$(FinanceGpuOut)libfinance_gpu.dylib" Rid="osx-arm64" Condition="Exists('$(FinanceGpuOut)libfinance_gpu.dylib')" />
+      <None Include="@(_FinanceGpu)" Link="%(_FinanceGpu.Filename)%(_FinanceGpu.Extension)" CopyToOutputDirectory="PreserveNewest" Pack="true" PackagePath="runtimes/%(_FinanceGpu.Rid)/native/" />
+    </ItemGroup>
+  </Target>
 
 </Project>

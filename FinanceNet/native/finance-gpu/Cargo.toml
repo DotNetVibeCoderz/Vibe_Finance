@@ -1,0 +1,23 @@
+[package]
+name = "finance-gpu"
+version = "0.9.0"
+edition = "2021"
+description = "Vulkan and Direct3D 12 compute kernels for Finance.Net (wgpu, C ABI). Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil."
+license = "MIT"
+authors = ["Gravicode Studios"]
+publish = false
+
+[lib]
+name = "finance_gpu"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# wgpu 24: newer releases (tested 30.0) crash in vkCreateDevice on older Intel Vulkan drivers (1.3.215).
+wgpu = { version = "24", default-features = false, features = ["wgsl"] }
+pollster = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+panic = "unwind"

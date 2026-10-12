@@ -41,15 +41,11 @@ pub fn covariance(data: &[f64], rows: usize, cols: usize, ddof: usize, out: &mut
     let mut centered = vec![0.0; cols];
     for r in 0..rows {
         let row = &data[r * cols..(r + 1) * cols];
-        for c in 0..cols {
-            centered[c] = row[c] - means[c];
-        }
+        crate::simd::sub(row, &means, &mut centered);
         for a in 0..cols {
             let ca = centered[a];
-            let dst = &mut out[a * cols..(a + 1) * cols];
-            for b in a..cols {
-                dst[b] += ca * centered[b];
-            }
+            // Upper triangle of row a: an element-wise axpy, vectorised per SIMD level with identical results.
+            crate::simd::axpy(ca, &centered[a..], &mut out[a * cols + a..(a + 1) * cols]);
         }
     }
     let scale = 1.0 / (rows - ddof) as f64;

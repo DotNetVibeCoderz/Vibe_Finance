@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using Finance.Mathematics;
-using ILGPU;
-using ILGPU.Runtime;
 
 namespace Finance.GPU;
 
@@ -38,22 +36,8 @@ public sealed class GpuRiskEngine
     {
         var (chol, drifts, args) = Prepare(weights, annualDrift, annualCovariance, horizonYears, scenarios, confidence, seed);
         var sw = Stopwatch.StartNew();
-        var kernel = _ctx.Kernel("var", acc => acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<double>, ArrayView<double>, ArrayView<double>, ArrayView<double>, VarArgs>(GpuKernels.PortfolioReturn));
-        double[] returns;
-        lock (_ctx.Gate)
-        {
-            var acc = _ctx.Accelerator;
-            using var dChol = acc.Allocate1D<double>(chol.Length);
-            using var dW = acc.Allocate1D<double>(weights.Length);
-            using var dDrift = acc.Allocate1D<double>(drifts.Length);
-            using var dOut = acc.Allocate1D<double>(scenarios);
-            dChol.CopyFromCPU(chol);
-            dW.CopyFromCPU(weights);
-            dDrift.CopyFromCPU(drifts);
-            kernel(scenarios, dChol.View, dW.View, dDrift.View, dOut.View, args);
-            acc.Synchronize();
-            returns = dOut.GetAsArray1D();
-        }
+        var returns = new double[scenarios];
+        _ctx.Run(e => { e.PortfolioReturns(chol, weights, drifts, args, scenarios, returns); return 0; });
         return Summarise(returns, confidence, _ctx.Device.Name, sw.Elapsed);
     }
 

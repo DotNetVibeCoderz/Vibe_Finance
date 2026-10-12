@@ -19,7 +19,8 @@ FastIndicators / FastRisk / FastPricing      (public C# API, spans in and out)
         └──                              : ManagedKernels (same algorithms, same RNG streams)
 ```
 
-- The crate is a `cdylib` with **no external crates** (builds offline). Every export takes pointer +
+- The crate is a `cdylib` with **no external crates** (builds offline). It contains the 248-entry indicator
+  catalogue (`src/ta`), HRP (`src/hrp.rs`) and the SIMD dispatch (`src/simd.rs`). Every export takes pointer +
   length, returns a status code (0 ok, −1 null pointer, −2 bad argument, −3 panic) and catches panics
   so they never cross into .NET.
 - P/Invoke uses source-generated `LibraryImport`.
@@ -31,7 +32,7 @@ FastIndicators / FastRisk / FastPricing      (public C# API, spans in and out)
 ```csharp
 using Finance.RustBridge;
 
-Console.WriteLine(RustAccelerator.Describe());       // e.g. "Rust accelerator 0.8.0 (path)" or "... unavailable - managed kernels in use"
+Console.WriteLine(RustAccelerator.Describe());       // e.g. "Rust accelerator 0.9.0 (path, SIMD avx2)" or "... unavailable - managed kernels in use"
 bool native = RustAccelerator.IsAvailable;           // loaded and not forced off
 string? version = RustAccelerator.NativeVersion;
 string? why = RustAccelerator.LoadError;
@@ -71,6 +72,35 @@ double[] paths = FastPricing.SimulateGbm(s0: 100, mu: 0.08, sigma: 0.2, dt: 1.0 
 ```
 
 `ManagedKernels` and `NativeKernels` are public too, for benchmarking one path against the other.
+
+## Indicator catalogue, HRP and SIMD (v0.5)
+
+```csharp
+using Finance.RustBridge;
+using Finance.TimeSeries.Indicators;
+
+// Every IndicatorCatalog entry (248: 188 indicators + 60 candlestick patterns) runs natively.
+IndicatorSeries[] macd = FastCatalog.Compute("MACD", frame, new Dictionary<string, double> { ["fast"] = 8 });
+bool native = FastCatalog.IsNative("HT_SINE");                  // false when the library is missing or forced off
+IReadOnlyCollection<string> ids = FastCatalog.NativeIds;
+
+HrpResult hrp = FastPortfolio.Hrp(covariance, assets, LinkageMethod.Single);   // same result as HierarchicalRiskParity.Optimize
+
+Console.WriteLine(RustAccelerator.SimdLevel);                   // Scalar (SSE2/NEON), Avx2 or Avx512, from CPUID
+RustAccelerator.SimdLevel = NativeSimdLevel.Scalar;             // or env FINANCE_NATIVE_SIMD=scalar|avx2|avx512
+```
+
+- **Parity, not approximation.** The Rust catalogue is a line-by-line port: a test runs every entry with default
+  and randomised parameters and requires the same output names, NaN in the same places and values equal to 1e-9
+  relative (in practice they agree to the last few bits). HRP must return the same leaf order, dendrogram and
+  weights to 14 digits for all three linkages.
+- **SIMD.** Hot element-wise loops (covariance) are compiled three times — baseline, AVX2+FMA, AVX-512F — and
+  dispatched at run time. Additions are never reordered, so every level gives bit-identical results; a test checks
+  each level the CPU supports. The AVX-512 path was not executed on the development laptop (no AVX-512).
+- Measured on a 4-core i7-8650U (AVX2, warm, best of 3): whole catalogue on 20,000 bars 620 ms managed vs 492 ms
+  native (1.3×; the heaviest entries — Hurst, volume/TPO profiles, Hilbert transforms — run at parity, .NET is
+  already fast there); HRP 400 assets 40.7 → 15.5 ms (2.6×); covariance 2000 × 400 154 ms managed, 81 ms native
+  baseline, 60 ms native AVX2.
 
 ## Building
 

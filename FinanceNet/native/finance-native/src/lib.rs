@@ -7,11 +7,13 @@
 //!
 //! Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil.
 
+pub mod hrp;
 pub mod indicators;
 pub mod normal;
 pub mod pricing;
 pub mod risk;
 pub mod rng;
+pub mod simd;
 pub mod ta;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -312,6 +314,56 @@ pub unsafe extern "C" fn fnat_indicator_ids(buf: *mut u8, cap: usize) -> i32 {
     })
 }
 
+/// Hierarchical Risk Parity on a row-major `n x n` covariance. `method`: 0 single, 1 complete, 2 average linkage.
+/// Outputs: `weights` and `order` (n each); the n - 1 dendrogram merges as `left`, `right`, `distance`, `size`.
+#[no_mangle]
+pub unsafe extern "C" fn fnat_hrp(
+    cov: *const f64, n: usize, method: u32, weights: *mut f64, order: *mut usize,
+    left: *mut usize, right: *mut usize, distance: *mut f64, size: *mut usize,
+) -> i32 {
+    guard(|| {
+        if n == 0 || method > 2 {
+            return FNAT_ERR_ARG;
+        }
+        if cov.is_null() || weights.is_null() || order.is_null() || (n > 1 && (left.is_null() || right.is_null() || distance.is_null() || size.is_null())) {
+            return FNAT_ERR_NULL;
+        }
+        let c = slice::from_raw_parts(cov, n * n);
+        let m = [hrp::Linkage::Single, hrp::Linkage::Complete, hrp::Linkage::Average][method as usize];
+        let (w, o, steps) = hrp::hrp(c, n, m);
+        if o.len() != n {
+            return FNAT_ERR_ARG;
+        }
+        slice::from_raw_parts_mut(weights, n).copy_from_slice(&w);
+        slice::from_raw_parts_mut(order, n).copy_from_slice(&o);
+        for (k, st) in steps.iter().enumerate() {
+            *left.add(k) = st.left;
+            *right.add(k) = st.right;
+            *distance.add(k) = st.distance;
+            *size.add(k) = st.size;
+        }
+        FNAT_OK
+    })
+}
+
+/// SIMD level in use: 0 scalar (SSE2/NEON baseline), 1 AVX2+FMA, 2 AVX-512F.
+#[no_mangle]
+pub extern "C" fn fnat_simd_level() -> i32 {
+    simd::level()
+}
+
+/// Highest SIMD level the CPU supports.
+#[no_mangle]
+pub extern "C" fn fnat_simd_supported() -> i32 {
+    simd::supported()
+}
+
+/// Forces a SIMD level (clamped to what the CPU supports); returns the level now in use.
+#[no_mangle]
+pub extern "C" fn fnat_set_simd_level(level: i32) -> i32 {
+    simd::set_level(level)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,6 +378,6 @@ mod tests {
             assert_eq!(fnat_sma(x.as_ptr(), 3, 2, o.as_mut_ptr()), FNAT_OK);
             assert_eq!(o[2], 2.5);
         }
-        assert_eq!(fnat_version(), 800);
+        assert_eq!(fnat_version(), 900);
     }
 }

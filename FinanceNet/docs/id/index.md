@@ -9,7 +9,7 @@ kemampuan ekosistem keuangan Python ke dalam satu library native yang bertipe ku
 derivatif ala QuantLib, konstruksi portofolio ala PyPortfolioOpt, analitik kinerja ala pyfolio,
 riset faktor ala Alphalens, backtesting ala Zipline/Backtrader, reinforcement learning ala FinRL,
 dan alat bahasa ala FinGPT. Bagian yang paling berat komputasinya bisa dijalankan di kernel
-**Rust** (`Finance.RustBridge`) atau di **GPU** (`Finance.GPU`, ILGPU).
+**Rust** (`Finance.RustBridge`) atau di **GPU** (`Finance.GPU`: CUDA, OpenCL, ROCm, Vulkan, Direct3D 12).
 
 Fondasinya adalah library milik penulis sendiri:
 **Gravicode.Science** (GraviNum untuk aljabar linear dan GraviFrame untuk data frame), **HF.Net**,
@@ -106,8 +106,8 @@ Semua paket menargetkan `net10.0`. ID NuGet mengikuti pola `Gravicode.<NamaProye
 | `Gravicode.Finance.LLM.Local` | FinBERT lokal lewat HF.Net (tanpa API, tanpa kredit) |
 | `Gravicode.Finance.NewsAnalytics` | Pembaca RSS, sentimen leksikon keuangan, ekstraksi entitas dan event, de-duplikasi MinHash, earnings call |
 | `Gravicode.Finance.Visualization` | Grafik SVG tanpa dependensi dan tearsheet HTML mandiri |
-| `Gravicode.Finance.GPU` | Pricing Monte Carlo ILGPU, Black-Scholes batch, VaR Monte Carlo |
-| `Gravicode.Finance.RustBridge` | Kernel Rust (indikator, VaR, pricing, Monte Carlo) dengan fallback managed yang identik |
+| `Gravicode.Finance.GPU` | Pricing Monte Carlo GPU, Black-Scholes batch, VaR Monte Carlo (ILGPU, HIP, Vulkan, Direct3D 12) |
+| `Gravicode.Finance.RustBridge` | Kernel Rust (seluruh katalog indikator, HRP, VaR, kovarians SIMD, pricing, Monte Carlo) dengan fallback managed yang identik |
 
 ## Instalasi
 

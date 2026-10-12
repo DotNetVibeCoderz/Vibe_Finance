@@ -3,8 +3,9 @@
 [← Index](../index.md) · [Bahasa Indonesia](../../id/modules/gpu.md) · Package: `Gravicode.Finance.GPU`
 
 GPU-accelerated Monte Carlo option pricing, batch Black-Scholes with Greeks, and Monte Carlo
-portfolio VaR, written as **ILGPU** kernels. The same code runs on CUDA, OpenCL or ILGPU's CPU
-accelerator, with automatic device selection and fallback.
+portfolio VaR. The kernels run on four engines with identical semantics and the same random numbers:
+**ILGPU** (CUDA, OpenCL, CPU accelerator), **native HIP** (AMD ROCm), **Vulkan** compute and
+**Direct3D 12** compute (the `DirectML` backend), with automatic device selection and fallback.
 
 Namespace: `Finance.GPU`.
 
@@ -26,22 +27,33 @@ using Finance.GPU;
 foreach (GpuDeviceInfo d in GpuContext.ListDevices())
     Console.WriteLine(d);                       // name, backend, memory, FP64 support, usable?
 
-using GpuContext ctx = GpuContext.CreateBest(allowCpu: true);   // CUDA → OpenCL (FP64) → CPU accelerator
+using GpuContext ctx = GpuContext.CreateBest(allowCpu: true);   // CUDA → ROCm → OpenCL (FP64) → Vulkan → Direct3D 12 → CPU
 Console.WriteLine($"{ctx.Device.Name} via {ctx.Backend}{(ctx.FallbackReason is { } why ? $" (fallback: {why})" : "")}");
 
-using GpuContext cuda = GpuContext.Create(GpuBackend.Cuda);     // throws if not available
+using GpuContext cuda = GpuContext.Create(GpuBackend.Cuda);     // throws NotSupportedException (with the reason) if not available
+using GpuContext warp = GpuContext.Create(GpuContext.ListDevices().First(d => d.Name.Contains("WARP")));   // one listed device
 ```
 
 | `GpuBackend` | Status |
 |---|---|
-| `Cuda` | Supported (NVIDIA, via ILGPU) |
-| `OpenCL` | Supported for devices with double precision (Intel, AMD, NVIDIA) |
-| `Cpu` | Supported (ILGPU CPU accelerator; always available) |
-| `Rocm` | Mapped to an AMD **OpenCL** device when one exists; otherwise throws with an explanation |
-| `DirectML` | **Not available** — ILGPU has no DirectML backend; `Create` throws `NotSupportedException` |
-| `Vulkan` | **Not available** — ILGPU has no Vulkan compute backend; `Create` throws `NotSupportedException` |
+| `GpuBackend` | Engine | Status |
+|---|---|---|
+| `Cuda` | ILGPU (PTX) | Supported (NVIDIA) |
+| `OpenCL` | ILGPU | Supported for devices with double precision (Intel, AMD, NVIDIA) |
+| `Cpu` | ILGPU CPU accelerator | Always available |
+| `Rocm` | Native HIP: C++ kernels compiled at run time with hiprtc | Needs the AMD HIP SDK (Windows) or ROCm (Linux); without it an AMD OpenCL device is used. **Not verified on AMD hardware** (none available); the kernel source was checked on the host against closed forms and the reference RNG |
+| `Vulkan` | `finance_gpu` native library (Rust, wgpu 24, WGSL with f64/i64) | Devices with `shaderFloat64` + `shaderInt64`; verified on Intel UHD 620 |
+| `DirectML` | Direct3D 12 compute shaders (HLSL → DXIL, shader model 6.0, precompiled) | Any DirectX 12 GPU with double-precision shaders, or WARP (Windows' software device); Windows only; verified on Intel UHD 620 and WARP |
 
-`GpuBackendSupport.UnsupportedReason(backend)` returns the explanation text.
+`DirectML` itself is an FP16/FP32 tensor-operator library with no double-precision transcendental operators;
+the backend runs Finance.GPU's FP64 kernels on the Direct3D 12 compute layer DirectML is built on.
+`GpuBackendSupport.UnsupportedReason(backend)` explains why a backend has no device on this machine.
+
+How the non-ILGPU engines keep full double precision: SPIR-V and DXIL have no 64-bit `exp`/`log`/`cos`, so the
+kernels implement them (range reduction + polynomials, relative error ~1e-16). The Direct3D 12 kernels also avoid
+optional "extended double" instructions (division, int↔double conversion) and 64-bit integers, so they run on any
+device that reports double support. A parity test compares every engine with the host reference: Monte Carlo sums
+agree to 1e-9 relative, batch Black-Scholes to 1e-10, VaR to 1e-12.
 
 ## Pricing
 
@@ -81,7 +93,15 @@ Correlated normals are produced through the Cholesky factor of the covariance ma
   [Benchmarks](../benchmarks.md). Small workloads are dominated by kernel launch and transfer cost.
 - The first call on a context compiles the kernels (JIT); warm up before timing.
 - There is no GPU historical VaR (sorting is cheaper on the CPU or in Rust for typical sizes).
-- DirectML and Vulkan are on the roadmap and would need a separate kernel path.
+- Measured on the same Intel UHD 620 (warm, best of 2): European MC 4M paths — OpenCL 19 ms, Direct3D 12 28 ms,
+  Vulkan 31 ms, WARP 147 ms, ILGPU CPU 150 ms; batch Black-Scholes 1M — OpenCL 79 ms, Direct3D 12 110 ms, Vulkan
+  168 ms; VaR 1M scenarios — OpenCL 141 ms, Vulkan 157 ms, Direct3D 12 180 ms. The polynomial `exp`/`log` and
+  per-call buffer creation make Vulkan/Direct3D 12 slower than OpenCL on this GPU; they matter where OpenCL is
+  missing (many Windows-on-ARM, cloud and AMD consumer setups).
+- wgpu 24 is used on purpose: wgpu 30 crashed inside `vkCreateDevice` on the (2022) Intel Vulkan driver.
+- The Direct3D 12 shaders are precompiled: after editing `Kernels/finance.hlsl` run `Kernels/compile-dxil.ps1`
+  (a test fails while the embedded DXIL is stale). Shader model 5.1 bytecode from FXC was tried first and
+  executed double-precision selects and stores wrongly on both the Intel driver and WARP.
 
 ---
 

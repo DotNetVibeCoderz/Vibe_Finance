@@ -61,6 +61,18 @@ internal static unsafe partial class NativeMethods
     public static partial int Indicator(byte* id, nuint idLen, double* open, double* high, double* low, double* close, double* volume, double* day, nuint n,
         double* parameters, nuint parameterCount, double* output, nuint maxOutputs, byte* names, nuint namesCapacity);
 
+    [LibraryImport(Library, EntryPoint = "fnat_simd_level")]
+    public static partial int SimdLevel();
+
+    [LibraryImport(Library, EntryPoint = "fnat_simd_supported")]
+    public static partial int SimdSupported();
+
+    [LibraryImport(Library, EntryPoint = "fnat_set_simd_level")]
+    public static partial int SetSimdLevel(int level);
+
+    [LibraryImport(Library, EntryPoint = "fnat_hrp")]
+    public static partial int Hrp(double* cov, nuint n, uint method, double* weights, nuint* order, nuint* left, nuint* right, double* distance, nuint* size);
+
     [LibraryImport(Library, EntryPoint = "fnat_indicator_ids")]
     public static partial int IndicatorIds(byte* buffer, nuint capacity);
 
