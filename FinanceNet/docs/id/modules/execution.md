@@ -104,7 +104,7 @@ mengirim DefaultApplVerID=9 saat logon.
 | `OandaBroker` | Bearer token | FX/CFD; unit bertanda, instrumen "EUR_USD", order market FOK |
 | `BybitBroker` | HMAC-SHA256 (X-BAPI-*) | API unified v5, default spot; `TestnetUrl` |
 | `OkxBroker` | HMAC-SHA256 Base64 + passphrase | API v5, mode cash; demo trading lewat `demo: true` |
-| `TwsClient` | socket TWS / IB Gateway | pemantauan akun: posisi, ringkasan akun, waktu server, id, pembatalan |
+| `TwsClient` / `TwsBroker` | socket TWS / IB Gateway | order (MKT/LMT/STP/STP LMT), status order, eksekusi, order terbuka; posisi, ringkasan akun, waktu server |
 
 Broker REST berbagi `VenueBroker`: venue melaporkan kuantitas kumulatif dan harga rata-rata, dan `RefreshAsync`
 mengubahnya menjadi fill inkremental yang tercatat tepat sekali seberapa sering pun order di-poll.
@@ -118,6 +118,76 @@ await using var tws = await TwsClient.ConnectAsync("127.0.0.1", 7497, clientId: 
 var positions = await tws.GetPositionsAsync();
 var netLiq = (await tws.GetAccountSummaryAsync()).Single(v => v.Tag == "NetLiquidation");
 ```
+
+### Order stop dan kondisional
+
+`Order` bersama mengekspresikan order pemicu tanpa tipe order baru: `OrderType.Stop` (stop-market) dan
+`OrderType.StopLimit` mengambil harga pemicu dari `StopPrice` (juga tersedia sebagai `TriggerPrice`). Member
+opsional: `TriggerBy` (`TriggerPriceType.Last` / `Mark` / `Index`; null = default venue), `TriggerDirection`
+(`Rising` / `Falling`; null = naik untuk beli, turun untuk jual, lihat `EffectiveTriggerDirection`), serta
+`TakeProfitPrice` / `StopLossPrice` yang dilampirkan. `Order.StopMarket(...)` dan `Order.StopLimit(...)` adalah
+pintasan.
+
+```csharp
+var stop = new Order("BTCUSDT", Side.Sell, 0.5, OrderType.Stop, stopPrice: 60_000) { TriggerBy = TriggerPriceType.Mark };
+var entry = new Order("BTCUSDT", Side.Buy, 0.5, OrderType.Limit, 61_000) { TakeProfitPrice = 66_000, StopLossPrice = 58_000 };
+
+var bybit = new BybitBroker(key, secret, category: "linear");
+await bybit.SubmitAsync(stop);              // /v5/order/create: triggerPrice, triggerDirection 2, triggerBy MarkPrice
+await bybit.SubmitAsync(entry);             // takeProfit / stopLoss pada order
+
+var okx = new OkxBroker(key, secret, passphrase) { TradeMode = "cross" };
+var algo = await okx.SubmitAsync(Order.StopLimit("BTC-USDT-SWAP", Side.Sell, 1, 60_000, 59_900));   // order-algo, ordType=trigger
+await okx.SubmitTpSlAsync(new Order("BTC-USDT-SWAP", Side.Sell, 1) { TakeProfitPrice = 66_000, StopLossPrice = 58_000 });   // ordType=oco
+await okx.CancelAsync(algo.Id);             // order algo dibatalkan lewat cancel-algos
+```
+
+| Venue | Stop / stop-limit | TP/SL terlampir | Pembatalan |
+|---|---|---|---|
+| Bybit (linear / inverse) | `POST /v5/order/create` + `triggerPrice`, `triggerDirection` (1 naik, 2 turun), `triggerBy` (LastPrice / MarkPrice / IndexPrice) | `takeProfit` / `stopLoss`, `tpTriggerBy` / `slTriggerBy` | `/v5/order/cancel` |
+| Bybit (spot) | endpoint yang sama + `triggerPrice` dan `orderFilter` = `StopOrder` (atau `tpslOrder` lewat `SpotConditionalFilter`); hanya harga last | `takeProfit` / `stopLoss` | `/v5/order/cancel` dengan `orderFilter` yang sama |
+| OKX | `POST /api/v5/trade/order-algo`, `ordType` = `trigger`, `triggerPx`, `orderPx` (-1 = market), `triggerPxType` (last / index / mark) | `attachAlgoOrds` (`tpTriggerPx`, `tpOrdPx`, `slTriggerPx`, `slOrdPx`); `conditional` / `oco` mandiri lewat `SubmitTpSlAsync` | `POST /api/v5/trade/cancel-algos` (array `{algoId, instId}`); algo yang sudah terpicu dibatalkan lewat order yang ditempatkannya |
+
+`RefreshAsync` tetap berlaku: status Bybit `Untriggered` / `Triggered` tetap terbuka dan `Deactivated` bersifat
+final; untuk OKX dibaca `GET /api/v5/trade/order-algo?algoId=…` dan, begitu algo `effective`, `ordIdList` diikuti
+ke order yang ditempatkannya lalu fill dicatat dari order itu.
+
+### Order Interactive Brokers TWS
+
+```csharp
+await using var tws = await TwsClient.ConnectAsync("127.0.0.1", 7497, clientId: 1);   // 7497 = TWS paper
+await using var ib = new TwsBroker(tws) { Account = "DU1234567", OutsideRth = false };
+ib.RegisterContract("EURUSD", TwsContract.Forex("EUR.USD"));                       // CASH di IDEALPRO
+ib.RegisterContract("ES", TwsContract.Future("ES", "202512", "CME", multiplier: "50"));
+
+Order o = await ib.SubmitAsync(new Order("AAPL", Side.Buy, 100, OrderType.Limit, 185.5) { TimeInForce = TimeInForce.Day });
+ib.OrderUpdated += e => Console.WriteLine($"{e.Kind} {e.Fill}");                // fill berasal dari execDetails
+await ib.CancelAsync(o.Id);
+
+// Level rendah: order MKT / LMT / STP / STP LMT apa pun, dengan id sendiri
+long id = await tws.PlaceOrderAsync(TwsContract.Stock("MSFT"), TwsOrder.StopLimit("SELL", 50, stop: 400, limit: 399.5) with { Tif = "GTC", OutsideRth = true });
+IReadOnlyList<TwsOpenOrder> open = await tws.GetOpenOrdersAsync();
+tws.OrderStatus += s => Console.WriteLine($"{s.OrderId} {s.Status} {s.Filled}/{s.Remaining}");
+tws.Execution += x => Console.WriteLine($"{x.ExecId} {x.Side} {x.Shares} @ {x.Price}");
+```
+
+- **Pesan.** Keluar: placeOrder (3), cancelOrder (4), reqOpenOrders (5). Masuk: orderStatus (3), error (4),
+  openOrder (5, hanya field awal: kontrak, action, kuantitas, tipe, harga, TIF, akun, id, outsideRth),
+  nextValidId (9), execDetails (11), openOrderEnd (53), commissionReport (59).
+- **Versi server.** Klien mengumumkan `v100..176`; urutan field placeOrder (`TwsPlaceOrder.Fields`) mengikuti
+  `EClient.placeOrder` dari TWS API dengan **176 sebagai target acuan**. Field yang ditambahkan setelah 100
+  dijaga oleh versi yang memperkenalkannya (kuantitas pecahan 101, blok conditions/adjusted-order 102,
+  modelCode 103, extOperator 105, soft-dollar tier 106, cashQty 111, MiFID II 138/139,
+  dontUseAutoPriceForHedge 141, tanpa field VERSION mulai 145, 148, 151, 158, 160, 162, 166, manualOrderTime
+  169); faProfile masih dikirim (baru hilang di 177, di luar rentang). cancelOrder menambah manualOrderCancelTime
+  mulai 169. orderStatus / execDetails / openOrder yang masuk tidak lagi membawa field versi mulai 131 / 136 / 145.
+- **Pemetaan.** Market → MKT, limit → LMT, stop → STP (`auxPrice` = stop), stop-limit → STP LMT; DAY / GTC / IOC
+  (FOK ditolak); `TriggerBy = Last` → triggerMethod 2. orderStatus PreSubmitted / Submitted → Accepted,
+  Cancelled / ApiCancelled → Cancelled, Inactive → Rejected (Cancelled bila sudah terisi sebagian); error 202 →
+  Cancelled, error order lain sebelum konfirmasi → Rejected (peringatan 399, 404, 161, 10147, 10148 diabaikan).
+  Setiap execDetails menjadi satu `Fill` (koreksi dengan akar execId yang sama tidak dihitung dua kali); nilai
+  commissionReport dijumlahkan di `ReportedCommission(orderId)`, sedangkan `Fill.Commission` memakai model
+  `Commission`.
 
 ## Algoritma, routing, TCA
 
@@ -146,16 +216,25 @@ double impact = TransactionCostAnalysis.SquareRootImpact(quantity: 50_000, avera
 
 ## Catatan dan batasan
 
-- `TwsClient` tidak menempatkan order: `placeOrder` memiliki daftar field panjang yang bergantung versi dan tidak
-  dapat diverifikasi terhadap TWS live di sini. Tempatkan order IB lewat `InteractiveBrokersBroker` (Client
-  Portal Web API).
+- **Penempatan order TWS dan order kondisional Bybit/OKX diuji terhadap fake dan payload terdokumentasi,
+  bukan secara live.** Pengujian TWS menjalankan TWS palsu di socket loopback yang memeriksa urutan field
+  placeOrder secara persis (dituliskan dari `EClient.placeOrder` untuk versi server 176 dan 130) dan membalas
+  dengan frame orderStatus / openOrder / execDetails / commissionReport / error; tidak ada TWS atau IB Gateway
+  sungguhan yang dipakai, sehingga pergeseran field pada build TWS tertentu masih mungkin. Pengujian Bybit/OKX
+  memeriksa body request terhadap nama parameter v5 yang terdokumentasi dan menghitung ulang setiap tanda tangan
+  atas body persisnya; tidak ada bursa yang dipanggil.
+- `TwsBroker` hanya mendukung kontrak saham (STK), forex (CASH), dan futures (FUT) dengan MKT / LMT / STP /
+  STP LMT; kombo, opsi, algo, trailing, dan conditions tidak dikodekan. TP/SL terlampir tidak dipetakan untuk TWS
+  (bangun bracket dengan `TwsOrder.ParentId` / `Transmit` di `TwsClient`). openOrder hanya dibaca sampai
+  `outsideRth`; status order berasal dari orderStatus.
+- Order kondisional spot Bybit hanya terpicu oleh harga last (`TriggerBy` Mark/Index ditolak). TP/SL tingkat
+  posisi Bybit (`/v5/position/trading-stop`) serta algo trailing / iceberg / TWAP OKX belum dicakup.
 - Status live venue v0.3: belum ada yang ditransaksikan secara live. Alpaca, OANDA, Bybit, dan OKX memerlukan
   akun, dan Bybit serta OKX juga tidak dapat dijangkau dari jaringan pengembangan (koneksi TLS di-reset, seperti
-  domain utama Binance). Keempatnya diuji dengan payload sesuai format dokumentasinya; order stop di Bybit/OKX
-  (endpoint algo/conditional) belum dicakup.
+  domain utama Binance). Keempatnya diuji dengan payload sesuai format dokumentasinya.
 
 - Adapter Interactive Brokers menargetkan **Client Portal Web API** (REST melalui gateway IB); diuji
-  dengan payload rekaman, belum dengan gateway yang berjalan. API socket TWS ada di roadmap.
+  dengan payload rekaman, belum dengan gateway yang berjalan. Untuk API socket TWS gunakan `TwsBroker`.
 - Sesi FIX menyimpan nomor urut di memori — belum ada penyimpanan pesan persisten, sehingga setelah
   restart celah pesan tidak bisa diputar ulang.
 - Begitu `PaperBroker` menerima order book untuk suatu simbol, pencocokan simbol itu memakai book dan

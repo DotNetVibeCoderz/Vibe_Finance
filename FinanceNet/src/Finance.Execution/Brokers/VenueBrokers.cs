@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -328,6 +329,15 @@ public sealed class OandaBroker : VenueBroker
 /// <c>timestamp + apiKey + recvWindow + (query string | JSON body)</c>, hex-encoded in X-BAPI-SIGN.
 /// <see cref="TestnetUrl"/> for paper trading.
 /// </summary>
+/// <remarks>
+/// Conditional orders (<see cref="OrderType.Stop"/> = stop-market, <see cref="OrderType.StopLimit"/> = stop-limit) go
+/// through <c>POST /v5/order/create</c> with <c>triggerPrice</c>. For linear/inverse they also carry
+/// <c>triggerDirection</c> (1 rising, 2 falling) and <c>triggerBy</c> (LastPrice / MarkPrice / IndexPrice); spot
+/// conditional orders instead carry <c>orderFilter</c> (<see cref="SpotConditionalFilter"/>: <c>StopOrder</c> or
+/// <c>tpslOrder</c>) and only trigger on the last price. <see cref="Order.TakeProfitPrice"/> /
+/// <see cref="Order.StopLossPrice"/> become <c>takeProfit</c> / <c>stopLoss</c> (with <c>tpTriggerBy</c> /
+/// <c>slTriggerBy</c> for derivatives). Built from the documented v5 field names; not exercised against the live API.
+/// </remarks>
 public sealed class BybitBroker : VenueBroker
 {
     public const string LiveUrl = "https://api.bybit.com", TestnetUrl = "https://api-testnet.bybit.com";
@@ -368,29 +378,79 @@ public sealed class BybitBroker : VenueBroker
         return r["result"]!;
     }
 
+    /// <summary><c>orderFilter</c> sent with spot conditional orders: <c>StopOrder</c> (default) or <c>tpslOrder</c>.</summary>
+    public string SpotConditionalFilter { get; init; } = "StopOrder";
+
+    private bool IsSpot => Category == "spot";
+
+    private static string Symbol(Order order) => order.Symbol.Replace("-", "").Replace("/", "").ToUpperInvariant();
+
+    /// <summary>Bybit's name for a trigger reference: LastPrice, MarkPrice or IndexPrice.</summary>
+    public static string TriggerByName(TriggerPriceType t) => t switch
+    {
+        TriggerPriceType.Mark => "MarkPrice",
+        TriggerPriceType.Index => "IndexPrice",
+        _ => "LastPrice",
+    };
+
+    /// <summary>The <c>orderFilter</c> an order is created / cancelled with on spot (null for derivatives and plain orders).</summary>
+    public string? OrderFilter(Order order) => IsSpot && order.IsConditional ? SpotConditionalFilter : null;
+
     public JsonObject OrderBody(Order order)
     {
-        if (order.Type is OrderType.Stop or OrderType.StopLimit) throw new BrokerException("Bybit conditional orders are not supported by this adapter.");
         var o = new JsonObject
         {
             ["category"] = Category,
-            ["symbol"] = order.Symbol.Replace("-", "").Replace("/", "").ToUpperInvariant(),
+            ["symbol"] = Symbol(order),
             ["side"] = order.Side == Side.Buy ? "Buy" : "Sell",
-            ["orderType"] = order.Type == OrderType.Limit ? "Limit" : "Market",
+            ["orderType"] = order.Type is OrderType.Limit or OrderType.StopLimit ? "Limit" : "Market",
             ["qty"] = F(order.Quantity),
             ["orderLinkId"] = $"fnet{order.Id}",
             ["timeInForce"] = order.TimeInForce switch { TimeInForce.Ioc => "IOC", TimeInForce.Fok => "FOK", _ => "GTC" },
         };
-        if (order.Type == OrderType.Market && Category == "spot") o["marketUnit"] = "baseCoin";   // qty in base currency
+        if (order.Type is OrderType.Market or OrderType.Stop && IsSpot) o["marketUnit"] = "baseCoin";   // qty in base currency
         if (order.LimitPrice is { } lp) o["price"] = F(lp);
+        if (order.TriggerPrice is { } tp)
+        {
+            o["triggerPrice"] = F(tp);
+            if (IsSpot)
+            {
+                if (order.TriggerBy is { } t && t != TriggerPriceType.Last)
+                    throw new BrokerException("Bybit spot conditional orders trigger on the last price only.");
+                o["orderFilter"] = SpotConditionalFilter;
+            }
+            else
+            {
+                o["triggerDirection"] = order.EffectiveTriggerDirection == TriggerDirection.Rising ? 1 : 2;
+                o["triggerBy"] = TriggerByName(order.TriggerBy ?? TriggerPriceType.Last);
+            }
+        }
+        if (order.TakeProfitPrice is { } take)
+        {
+            o["takeProfit"] = F(take);
+            if (!IsSpot && order.TriggerBy is { } t) o["tpTriggerBy"] = TriggerByName(t);
+        }
+        if (order.StopLossPrice is { } loss)
+        {
+            o["stopLoss"] = F(loss);
+            if (!IsSpot && order.TriggerBy is { } t) o["slTriggerBy"] = TriggerByName(t);
+        }
         return o;
+    }
+
+    /// <summary>The JSON body of <c>POST /v5/order/cancel</c> (spot conditional orders need their <c>orderFilter</c>).</summary>
+    public JsonObject CancelBody(Order order, string venueId)
+    {
+        var body = new JsonObject { ["category"] = Category, ["symbol"] = Symbol(order), ["orderId"] = venueId };
+        if (OrderFilter(order) is { } filter) body["orderFilter"] = filter;
+        return body;
     }
 
     public static VenueOrderState ParseOrder(JsonNode o)
     {
         string status = o["orderStatus"]?.GetValue<string>() ?? "";
         return new VenueOrderState(status, N(o["cumExecQty"]), N(o["avgPrice"]),
-            status is "Cancelled" or "PartiallyFilledCanceled" or "Deactivated", status == "Rejected");
+            status is "Cancelled" or "PartiallyFilledCanceled" or "Deactivated", status == "Rejected");   // Untriggered / Triggered stay open
     }
 
     protected override async Task<(string, VenueOrderState?)> PlaceAsync(Order order, CancellationToken ct)
@@ -400,14 +460,12 @@ public sealed class BybitBroker : VenueBroker
     }
 
     protected override async Task CancelAtVenueAsync(Order order, string venueId, CancellationToken ct)
-    {
-        var body = new JsonObject { ["category"] = Category, ["symbol"] = order.Symbol.Replace("-", "").Replace("/", "").ToUpperInvariant(), ["orderId"] = venueId };
-        Result(await SendAsync(HttpMethod.Post, "/v5/order/cancel", body.ToJsonString(), Sign, ct).ConfigureAwait(false));
-    }
+        => Result(await SendAsync(HttpMethod.Post, "/v5/order/cancel", CancelBody(order, venueId).ToJsonString(), Sign, ct).ConfigureAwait(false));
 
     protected override async Task<VenueOrderState> QueryAsync(Order order, string venueId, CancellationToken ct)
     {
-        var r = Result(await SendAsync(HttpMethod.Get, $"/v5/order/realtime?category={Category}&orderId={venueId}", null, Sign, ct).ConfigureAwait(false));
+        string filter = OrderFilter(order) is { } f ? "&orderFilter=" + f : "";
+        var r = Result(await SendAsync(HttpMethod.Get, $"/v5/order/realtime?category={Category}&orderId={venueId}{filter}", null, Sign, ct).ConfigureAwait(false));
         var list = r["list"]!.AsArray();
         return list.Count == 0 ? new VenueOrderState("Unknown", order.FilledQuantity, order.AverageFillPrice, false) : ParseOrder(list[0]!);
     }
@@ -431,10 +489,20 @@ public sealed class BybitBroker : VenueBroker
 /// requestPath + body)), plus the API passphrase; <see cref="Demo"/> adds the x-simulated-trading header for the
 /// demo-trading environment.
 /// </summary>
+/// <remarks>
+/// Stop orders (<see cref="OrderType.Stop"/> / <see cref="OrderType.StopLimit"/>) are placed as algo orders through
+/// <c>POST /api/v5/trade/order-algo</c> with <c>ordType</c> = <c>trigger</c> (<c>triggerPx</c>, <c>orderPx</c> = limit or -1
+/// for market, <c>triggerPxType</c> last / index / mark) and cancelled with <c>POST /api/v5/trade/cancel-algos</c>.
+/// <see cref="Order.TakeProfitPrice"/> / <see cref="Order.StopLossPrice"/> on an order are sent as
+/// <c>attachAlgoOrds</c>; <see cref="SubmitTpSlAsync"/> places a standalone <c>conditional</c> (one leg) or <c>oco</c>
+/// (both legs) TP/SL algo. Built from the documented v5 field names; not exercised against the live API.
+/// </remarks>
 public sealed class OkxBroker : VenueBroker
 {
     private readonly string _apiKey, _passphrase;
     private readonly byte[] _secret;
+    private readonly ConcurrentDictionary<long, string> _algoTriggeredOrdIds = new();   // our id -> triggered ordId ("" until triggered)
+    private readonly ConcurrentDictionary<long, byte> _tpslOnly = new();
 
     public OkxBroker(string apiKey, string apiSecret, string passphrase, bool demo = true, string baseUrl = "https://www.okx.com",
         HttpClient? http = null, TimeProvider? time = null) : base(baseUrl, http, time)
@@ -477,9 +545,100 @@ public sealed class OkxBroker : VenueBroker
         return r["data"]!;
     }
 
+    /// <summary>True when the order lives on OKX as an algo order (its venue id is an algoId).</summary>
+    public bool IsAlgoOrder(long orderId) => _algoTriggeredOrdIds.ContainsKey(orderId);
+
+    /// <summary>
+    /// Places a standalone take-profit / stop-loss algo for <paramref name="closingOrder"/> (side and size of the
+    /// closing trade; a limit price, if any, becomes the leg order price, otherwise -1 = market): <c>conditional</c>
+    /// with one leg, <c>oco</c> with both <see cref="Order.TakeProfitPrice"/> and <see cref="Order.StopLossPrice"/>.
+    /// </summary>
+    public Task<Order> SubmitTpSlAsync(Order closingOrder, CancellationToken cancellationToken = default)
+    {
+        if (closingOrder.TakeProfitPrice is null && closingOrder.StopLossPrice is null)
+            throw new ArgumentException("A TP/SL algo needs TakeProfitPrice and/or StopLossPrice.", nameof(closingOrder));
+        if (closingOrder.IsConditional) throw new ArgumentException("The closing order of a TP/SL algo must be market or limit.", nameof(closingOrder));
+        _tpslOnly[closingOrder.Id] = 0;
+        return SubmitAsync(closingOrder, cancellationToken);
+    }
+
+    /// <summary>OKX's name for a trigger reference: last, index or mark.</summary>
+    public static string TriggerPxTypeName(TriggerPriceType t) => t switch
+    {
+        TriggerPriceType.Mark => "mark",
+        TriggerPriceType.Index => "index",
+        _ => "last",
+    };
+
+    private static JsonObject? AttachedTpSl(Order order)
+    {
+        if (order.TakeProfitPrice is null && order.StopLossPrice is null) return null;
+        var a = new JsonObject { ["attachAlgoClOrdId"] = $"fnet{order.Id}tpsl" };
+        AddTpSlLegs(a, order, legPx: "-1");
+        return a;
+    }
+
+    private static void AddTpSlLegs(JsonObject o, Order order, string legPx)
+    {
+        if (order.TakeProfitPrice is { } tp)
+        {
+            o["tpTriggerPx"] = F(tp);
+            o["tpOrdPx"] = legPx;
+            if (order.TriggerBy is { } t) o["tpTriggerPxType"] = TriggerPxTypeName(t);
+        }
+        if (order.StopLossPrice is { } sl)
+        {
+            o["slTriggerPx"] = F(sl);
+            o["slOrdPx"] = legPx;
+            if (order.TriggerBy is { } t) o["slTriggerPxType"] = TriggerPxTypeName(t);
+        }
+    }
+
+    /// <summary>The JSON body of <c>POST /api/v5/trade/order-algo</c> (<c>ordType</c> = <c>trigger</c>) for a stop / stop-limit order.</summary>
+    public JsonObject AlgoBody(Order order)
+    {
+        if (!order.IsConditional) throw new BrokerException("OKX trigger algo orders need a Stop or StopLimit order.");
+        var o = new JsonObject
+        {
+            ["instId"] = InstId(order.Symbol),
+            ["tdMode"] = TradeMode,
+            ["side"] = order.Side == Side.Buy ? "buy" : "sell",
+            ["ordType"] = "trigger",
+            ["sz"] = F(order.Quantity),
+            ["algoClOrdId"] = $"fnet{order.Id}",
+            ["triggerPx"] = F(order.TriggerPrice!.Value),
+            ["orderPx"] = order.Type == OrderType.StopLimit ? F(order.LimitPrice!.Value) : "-1",
+        };
+        if (order.TriggerBy is { } t) o["triggerPxType"] = TriggerPxTypeName(t);
+        if (order.Type == OrderType.Stop && TradeMode == "cash") o["tgtCcy"] = "base_ccy";
+        if (AttachedTpSl(order) is { } a) o["attachAlgoOrds"] = new JsonArray(a);
+        return o;
+    }
+
+    /// <summary>The JSON body of <c>POST /api/v5/trade/order-algo</c> for a standalone TP/SL: <c>conditional</c> or <c>oco</c>.</summary>
+    public JsonObject TpSlBody(Order closingOrder)
+    {
+        bool both = closingOrder.TakeProfitPrice is not null && closingOrder.StopLossPrice is not null;
+        var o = new JsonObject
+        {
+            ["instId"] = InstId(closingOrder.Symbol),
+            ["tdMode"] = TradeMode,
+            ["side"] = closingOrder.Side == Side.Buy ? "buy" : "sell",
+            ["ordType"] = both ? "oco" : "conditional",
+            ["sz"] = F(closingOrder.Quantity),
+            ["algoClOrdId"] = $"fnet{closingOrder.Id}",
+        };
+        AddTpSlLegs(o, closingOrder, closingOrder.LimitPrice is { } lp ? F(lp) : "-1");
+        return o;
+    }
+
+    /// <summary>The JSON body of <c>POST /api/v5/trade/cancel-algos</c>: an array of algoId / instId pairs.</summary>
+    public static JsonArray CancelAlgosBody(Order order, string algoId)
+        => new(new JsonObject { ["algoId"] = algoId, ["instId"] = InstId(order.Symbol) });
+
     public JsonObject OrderBody(Order order)
     {
-        if (order.Type is OrderType.Stop or OrderType.StopLimit) throw new BrokerException("OKX algo (stop) orders are not supported by this adapter.");
+        if (order.Type is OrderType.Stop or OrderType.StopLimit) throw new BrokerException("OKX stop orders are algo orders: use AlgoBody (order-algo).");
         var o = new JsonObject
         {
             ["instId"] = InstId(order.Symbol),
@@ -492,6 +651,7 @@ public sealed class OkxBroker : VenueBroker
         };
         if (order.Type == OrderType.Market && TradeMode == "cash") o["tgtCcy"] = "base_ccy";      // size in base currency
         if (order.LimitPrice is { } lp) o["px"] = F(lp);
+        if (AttachedTpSl(order) is { } a) o["attachAlgoOrds"] = new JsonArray(a);
         return o;
     }
 
@@ -510,8 +670,29 @@ public sealed class OkxBroker : VenueBroker
         return new VenueOrderState(state, N(o["accFillSz"]), N(o["avgPx"]), state is "canceled" or "mmp_canceled", false);
     }
 
+    /// <summary>
+    /// Reads an algo order from <c>GET /api/v5/trade/order-algo</c>: its state (live, effective, canceled,
+    /// order_failed, ...) and, once triggered, the id of the order it placed (<c>ordIdList</c>, or legacy <c>ordId</c>).
+    /// </summary>
+    public static (VenueOrderState State, string? TriggeredOrdId) ParseAlgoOrder(JsonNode o)
+    {
+        string state = o["state"]?.GetValue<string>() ?? "";
+        string? ordId = o["ordIdList"] is JsonArray ids && ids.Count > 0 ? ids[0]?.GetValue<string>() : o["ordId"]?.GetValue<string>();
+        if (string.IsNullOrEmpty(ordId)) ordId = null;
+        return (new VenueOrderState(state, 0, 0, state is "canceled" or "order_failed", state == "order_failed"), ordId);
+    }
+
     protected override async Task<(string, VenueOrderState?)> PlaceAsync(Order order, CancellationToken ct)
     {
+        bool tpsl = _tpslOnly.TryRemove(order.Id, out _);
+        if (tpsl || order.IsConditional)
+        {
+            var body = tpsl ? TpSlBody(order) : AlgoBody(order);
+            var a = Data(await SendAsync(HttpMethod.Post, "/api/v5/trade/order-algo", body.ToJsonString(), Sign, ct).ConfigureAwait(false))[0]!;
+            if (a["sCode"]?.GetValue<string>() is { } c && c != "0") throw new BrokerException($"OKX {c}: {a["sMsg"]}");
+            _algoTriggeredOrdIds[order.Id] = "";
+            return (a["algoId"]!.GetValue<string>(), null);
+        }
         var d = Data(await SendAsync(HttpMethod.Post, "/api/v5/trade/order", OrderBody(order).ToJsonString(), Sign, ct).ConfigureAwait(false))[0]!;
         if (d["sCode"]?.GetValue<string>() is { } code && code != "0") throw new BrokerException($"OKX {code}: {d["sMsg"]}");
         return (d["ordId"]!.GetValue<string>(), null);
@@ -519,12 +700,33 @@ public sealed class OkxBroker : VenueBroker
 
     protected override async Task CancelAtVenueAsync(Order order, string venueId, CancellationToken ct)
     {
+        if (_algoTriggeredOrdIds.TryGetValue(order.Id, out var triggered))
+        {
+            if (triggered.Length == 0)
+            {
+                Data(await SendAsync(HttpMethod.Post, "/api/v5/trade/cancel-algos", CancelAlgosBody(order, venueId).ToJsonString(), Sign, ct).ConfigureAwait(false));
+                return;
+            }
+            venueId = triggered;            // already triggered: cancel the order it placed
+        }
         var body = new JsonObject { ["instId"] = InstId(order.Symbol), ["ordId"] = venueId };
         Data(await SendAsync(HttpMethod.Post, "/api/v5/trade/cancel-order", body.ToJsonString(), Sign, ct).ConfigureAwait(false));
     }
 
     protected override async Task<VenueOrderState> QueryAsync(Order order, string venueId, CancellationToken ct)
-        => ParseOrder(Data(await SendAsync(HttpMethod.Get, $"/api/v5/trade/order?instId={InstId(order.Symbol)}&ordId={venueId}", null, Sign, ct).ConfigureAwait(false))[0]!);
+    {
+        if (_algoTriggeredOrdIds.TryGetValue(order.Id, out var triggered))
+        {
+            if (triggered.Length == 0)
+            {
+                var (state, ordId) = ParseAlgoOrder(Data(await SendAsync(HttpMethod.Get, $"/api/v5/trade/order-algo?algoId={venueId}", null, Sign, ct).ConfigureAwait(false))[0]!);
+                if (ordId is null) return state;
+                _algoTriggeredOrdIds[order.Id] = triggered = ordId;
+            }
+            venueId = triggered;
+        }
+        return ParseOrder(Data(await SendAsync(HttpMethod.Get, $"/api/v5/trade/order?instId={InstId(order.Symbol)}&ordId={venueId}", null, Sign, ct).ConfigureAwait(false))[0]!);
+    }
 
     public override async Task<IReadOnlyList<Position>> GetPositionsAsync(CancellationToken cancellationToken = default)
     {

@@ -208,6 +208,54 @@ public class GpuBackendParityTests : IClassFixture<CpuGpuFixture>
     }
 }
 
+public class GpuBufferReuseTests
+{
+    /// <summary>Engines reuse grow-only buffers between launches: shrinking and growing batches must stay exact.</summary>
+    [Theory]
+    [InlineData("Cpu")]
+    [InlineData("OpenCL")]
+    [InlineData("Vulkan")]
+    [InlineData("DirectML")]
+    [InlineData("WARP")]
+    [InlineData("Rocm")]
+    public void BatchesOfChangingSizeStayCorrect(string engine)
+    {
+        var devices = GpuContext.ListDevices().Where(d => d.IsUsable).ToList();
+        GpuDeviceInfo? d = engine switch
+        {
+            "Vulkan" => devices.FirstOrDefault(x => x.Backend == GpuBackend.Vulkan),
+            "DirectML" => devices.FirstOrDefault(x => x.Backend == GpuBackend.DirectML && !x.Name.Contains("(WARP")),
+            "WARP" => devices.FirstOrDefault(x => x.Backend == GpuBackend.DirectML && x.Name.Contains("(WARP")),
+            "Cpu" => devices.FirstOrDefault(x => x.Backend == GpuBackend.Cpu),
+            "OpenCL" => devices.FirstOrDefault(x => x.Backend == GpuBackend.OpenCL),
+            _ => devices.FirstOrDefault(x => x.Backend == GpuBackend.Rocm && x.Note?.Contains("HIP") == true),
+        };
+        if (d is null) Assert.Skip($"no {engine} device");
+        using var ctx = GpuContext.Create(d);
+        var pricer = new GpuOptionPricer(ctx);
+        foreach (int n in new[] { 3000, 7, 1, 12_345, 50 })
+        {
+            var s = Enumerable.Range(0, n).Select(i => 80.0 + i % 41).ToArray();
+            var k = Enumerable.Repeat(100.0, n).ToArray();
+            var t = Enumerable.Range(0, n).Select(i => 0.25 + i % 5 * 0.5).ToArray();
+            var r = Enumerable.Repeat(0.03, n).ToArray();
+            var q = Enumerable.Repeat(0.01, n).ToArray();
+            var v = Enumerable.Range(0, n).Select(i => 0.1 + i % 7 * 0.05).ToArray();
+            var c = Enumerable.Range(0, n).Select(i => i % 3 != 0).ToArray();
+            var bs = pricer.BlackScholesBatch(s, k, t, r, q, v, c);
+            Assert.Equal(n, bs.Price.Length);
+            for (int i = 0; i < n; i++)
+            {
+                double m = ManagedKernels.BlackScholes(s[i], k[i], t[i], r[i], q[i], v[i], c[i]).Price;
+                Assert.True(Math.Abs(m - bs.Price[i]) <= 1e-10 * Math.Max(1, m), $"{engine} n={n} row {i}: {bs.Price[i]} vs {m}");
+            }
+            var mc = pricer.MonteCarloEuropean(100, 100, 1, 0.05, 0, 0.2, true, paths: 1000 + n, seed: 9);
+            var host = pricer.MonteCarloEuropeanReference(100, 100, 1, 0.05, 0, 0.2, true, paths: 1000 + n, seed: 9);
+            Assert.True(Math.Abs(mc.Price - host.Price) <= 1e-9 * host.Price, $"{engine} n={n}: MC {mc.Price} vs {host.Price}");
+        }
+    }
+}
+
 public class GpuKernelSourceTests
 {
     /// <summary>The embedded DXIL must have been compiled from the current finance.hlsl (run Kernels/compile-dxil.ps1).</summary>

@@ -27,14 +27,16 @@ public sealed class TwsException(TwsError error) : Exception($"TWS error {error.
 /// <summary>
 /// Client for the Interactive Brokers TWS / IB Gateway socket API: the binary protocol (4-byte big-endian length
 /// prefix, NUL-terminated ASCII fields), the <c>API\0</c> version handshake and <c>startApi</c>, and the
-/// stable request families for monitoring an account: server time, next valid order id, managed accounts,
-/// positions, account summary, order cancellation, and error/notice messages.
+/// stable request families for monitoring an account (server time, next valid order id, managed accounts,
+/// positions, account summary) and for orders: placeOrder, cancelOrder, reqOpenOrders, and the orderStatus,
+/// openOrder, execDetails, commissionReport and error messages they produce.
 /// </summary>
 /// <remarks>
-/// Order placement over the socket is deliberately not implemented: <c>placeOrder</c>'s field list runs to over a
-/// hundred version-dependent fields and could not be verified against a live TWS here. Place orders through
-/// <see cref="InteractiveBrokersBroker"/> (Client Portal Web API) and use this client for low-latency account
-/// and position monitoring alongside it. Ports: 7497 TWS paper, 7496 TWS live, 4002/4001 IB Gateway.
+/// placeOrder is encoded by <see cref="TwsPlaceOrder"/> in the field order of the TWS API's <c>EClient.placeOrder</c>
+/// for the negotiated server version (reference target 176, the top of the announced range; newer fields are
+/// guarded by the server version that introduced them). It is tested against a fake TWS asserting the exact
+/// field sequence, not against a live TWS. <see cref="TwsBroker"/> maps it onto <see cref="IBroker"/>.
+/// Ports: 7497 TWS paper, 7496 TWS live, 4002/4001 IB Gateway.
 /// </remarks>
 public sealed class TwsClient : IAsyncDisposable
 {
@@ -42,9 +44,13 @@ public sealed class TwsClient : IAsyncDisposable
     public const int MinClientVersion = 100, MaxClientVersion = 176;
 
     private const int ReqCurrentTime = 49, ReqIds = 8, ReqPositions = 61, CancelPositions = 64, ReqAccountSummary = 62,
-        CancelAccountSummary = 63, CancelOrderMsg = 4, StartApi = 71;
-    private const int InError = 4, InNextValidId = 9, InManagedAccounts = 15, InCurrentTime = 49, InPosition = 61, InPositionEnd = 62,
+        CancelAccountSummary = 63, ReqOpenOrders = 5, StartApi = 71;
+    private const int InOrderStatus = 3, InError = 4, InOpenOrder = 5, InNextValidId = 9, InExecDetails = 11, InManagedAccounts = 15,
+        InCurrentTime = 49, InOpenOrderEnd = 53, InCommissionReport = 59, InPosition = 61, InPositionEnd = 62,
         InAccountSummary = 63, InAccountSummaryEnd = 64;
+
+    // Server versions that change the incoming order messages within 100..176.
+    private const int MinServerVerMarketCapPrice = 131, MinServerVerLastLiquidity = 136;
 
     private readonly TcpClient _tcp;
     private readonly NetworkStream _stream;
@@ -53,8 +59,11 @@ public sealed class TwsClient : IAsyncDisposable
     private readonly ConcurrentDictionary<string, TaskCompletionSource<object>> _waiters = new();
     private readonly List<TwsPosition> _positions = new();
     private readonly ConcurrentDictionary<int, List<TwsAccountValue>> _summaries = new();
+    private readonly List<TwsOpenOrder> _openOrders = new();
+    private readonly object _idGate = new();
     private Task? _reader;
     private int _nextRequestId = 1;
+    private long _nextOrderId;
 
     private TwsClient(TcpClient tcp)
     {
@@ -71,11 +80,27 @@ public sealed class TwsClient : IAsyncDisposable
     /// <summary>Accounts this login can trade (from managedAccounts).</summary>
     public IReadOnlyList<string> ManagedAccounts { get; private set; } = Array.Empty<string>();
 
-    /// <summary>Next valid order id (from nextValidId).</summary>
-    public long NextValidOrderId { get; private set; }
+    /// <summary>Next order id this client will use (from nextValidId, advanced by <see cref="AllocateOrderId"/>).</summary>
+    public long NextValidOrderId
+    {
+        get { lock (_idGate) return _nextOrderId; }
+        private set { lock (_idGate) _nextOrderId = Math.Max(_nextOrderId, value); }
+    }
 
     /// <summary>Every error and notice received.</summary>
     public event Action<TwsError>? Error;
+
+    /// <summary>orderStatus messages.</summary>
+    public event Action<TwsOrderStatus>? OrderStatus;
+
+    /// <summary>openOrder messages (after placeOrder and in reply to reqOpenOrders).</summary>
+    public event Action<TwsOpenOrder>? OpenOrder;
+
+    /// <summary>execDetails messages: one per (partial) execution.</summary>
+    public event Action<TwsExecution>? Execution;
+
+    /// <summary>commissionReport messages, which follow each execution.</summary>
+    public event Action<TwsCommissionReport>? CommissionReport;
 
     /// <summary>Connects, performs the version handshake and startApi, and waits for nextValidId.</summary>
     public static async Task<TwsClient> ConnectAsync(string host = "127.0.0.1", int port = 7497, int clientId = 0, CancellationToken cancellationToken = default)
@@ -154,9 +179,39 @@ public sealed class TwsClient : IAsyncDisposable
         return values ?? new List<TwsAccountValue>();
     }
 
-    /// <summary>Cancels an open order by its TWS order id.</summary>
+    /// <summary>Cancels an open order by its TWS order id (cancelOrder, outgoing id 4).</summary>
     public Task CancelOrderAsync(long orderId, CancellationToken cancellationToken = default)
-        => SendAsync(cancellationToken, CancelOrderMsg, 1, orderId);
+        => SendAsync(cancellationToken, TwsPlaceOrder.CancelFields(ServerVersion, orderId));
+
+    /// <summary>Takes the next order id (ids must increase per client; TWS rejects reused ids).</summary>
+    public long AllocateOrderId()
+    {
+        lock (_idGate) return _nextOrderId++;
+    }
+
+    /// <summary>Places (or, with an existing id, modifies) an order under <paramref name="orderId"/> (placeOrder, outgoing id 3).</summary>
+    public Task PlaceOrderAsync(long orderId, TwsContract contract, TwsOrder order, CancellationToken cancellationToken = default)
+        => SendAsync(cancellationToken, TwsPlaceOrder.Fields(ServerVersion, orderId, contract, order));
+
+    /// <summary>Places an order under a freshly allocated id and returns that id.</summary>
+    public async Task<long> PlaceOrderAsync(TwsContract contract, TwsOrder order, CancellationToken cancellationToken = default)
+    {
+        var fields = TwsPlaceOrder.Fields(ServerVersion, 0, contract, order);   // validate before using up an id
+        long id = AllocateOrderId();
+        fields[ServerVersion < TwsPlaceOrder.OrderContainer ? 2 : 1] = id;
+        await SendAsync(cancellationToken, fields).ConfigureAwait(false);
+        return id;
+    }
+
+    /// <summary>Open orders of this client (reqOpenOrders, outgoing id 5, collected until openOrderEnd).</summary>
+    public async Task<IReadOnlyList<TwsOpenOrder>> GetOpenOrdersAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_openOrders) _openOrders.Clear();
+        var w = Wait("openOrderEnd");
+        await SendAsync(cancellationToken, ReqOpenOrders, 1).ConfigureAwait(false);
+        await w.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
+        lock (_openOrders) return _openOrders.ToList();
+    }
 
     // ------------------------------------------------------------------ wire protocol
 
@@ -250,6 +305,82 @@ public sealed class TwsClient : IAsyncDisposable
     private static double D(string s) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : double.NaN;
     private static long L(string s) => long.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
 
+    /// <summary>Reads a message's fields in order (missing trailing fields read as empty).</summary>
+    private sealed class FieldReader(string[] fields, int start)
+    {
+        private int _i = start;
+        public string S() => _i < fields.Length ? fields[_i++] : "";
+        public long L() => TwsClient.L(S());
+        public int I() => (int)L();
+        public double D() => TwsClient.D(S());
+        public double? Dn() { var s = S(); return s.Length == 0 || s == "1.7976931348623157E308" ? null : TwsClient.D(s); }
+        public bool B() { var s = S(); return s is "1" or "true"; }
+    }
+
+    // orderStatus: [3, version (< 131),] orderId, status, filled, remaining, avgFillPrice, permId, parentId,
+    //              lastFillPrice, clientId, whyHeld[, mktCapPrice (>= 131)]
+    private TwsOrderStatus ParseOrderStatus(string[] f)
+    {
+        var r = new FieldReader(f, ServerVersion < MinServerVerMarketCapPrice ? 2 : 1);
+        return new TwsOrderStatus(r.L(), r.S(), r.D(), r.D(), r.D(), r.L(), r.L(), r.D(), r.I(), r.S(),
+            ServerVersion >= MinServerVerMarketCapPrice ? r.D() : 0);
+    }
+
+    // execDetails: [11, version (< 136),] reqId (v >= 7), orderId, conId, symbol, secType, lastTradeDate, strike, right,
+    //              multiplier (v >= 9), exchange, currency, localSymbol, tradingClass (v >= 10), execId, time, acctNumber,
+    //              exchange, side, shares, price, permId, clientId, liquidation, cumQty, avgPrice, orderRef (v >= 8), ...
+    private TwsExecution ParseExecution(string[] f)
+    {
+        int version = ServerVersion < MinServerVerLastLiquidity ? (int)L(f[1]) : ServerVersion;
+        var r = new FieldReader(f, ServerVersion < MinServerVerLastLiquidity ? 2 : 1);
+        int reqId = version >= 7 ? r.I() : -1;
+        long orderId = r.L(), conId = r.L();
+        string symbol = r.S(), secType = r.S();
+        r.S(); r.S(); r.S();                                   // lastTradeDate, strike, right
+        if (version >= 9) r.S();                               // multiplier
+        r.S();                                                 // exchange (contract)
+        string currency = r.S();
+        r.S();                                                 // localSymbol
+        if (version >= 10) r.S();                              // tradingClass
+        string execId = r.S(), time = r.S(), acct = r.S(), exchange = r.S(), side = r.S();
+        double shares = r.D(), price = r.D();
+        long permId = r.L();
+        int clientId = r.I();
+        r.S();                                                 // liquidation
+        double cum = version >= 6 ? r.D() : shares, avg = version >= 6 ? r.D() : price;
+        string orderRef = version >= 8 ? r.S() : "";
+        return new TwsExecution(reqId, orderId, conId, symbol, secType, currency, execId, time, acct, exchange, side, shares, price,
+            permId, clientId, cum, avg, orderRef);
+    }
+
+    // openOrder: [5, version (< 145),] orderId, conId, symbol, secType, lastTradeDate, strike, right, multiplier, exchange,
+    //            currency, localSymbol, tradingClass, action, totalQty, orderType, lmtPrice, auxPrice, tif, ocaGroup,
+    //            account, openClose, origin, orderRef, clientId, permId, outsideRth, hidden, ... (rest not read)
+    private TwsOpenOrder ParseOpenOrder(string[] f)
+    {
+        var r = new FieldReader(f, ServerVersion < TwsPlaceOrder.OrderContainer ? 2 : 1);
+        long orderId = r.L(), conId = r.L();
+        string symbol = r.S(), secType = r.S(), lastTrade = r.S();
+        r.S(); r.S();                                          // strike, right
+        string multiplier = r.S(), exchange = r.S(), currency = r.S(), localSymbol = r.S(), tradingClass = r.S();
+        var contract = new TwsContract(symbol, secType, exchange, currency)
+        {
+            ConId = conId, LastTradeDateOrContractMonth = lastTrade, Multiplier = multiplier, LocalSymbol = localSymbol, TradingClass = tradingClass,
+        };
+        string action = r.S();
+        double qty = r.D();
+        string type = r.S();
+        double? lmt = r.Dn(), aux = r.Dn();
+        string tif = r.S();
+        r.S();                                                 // ocaGroup
+        string account = r.S();
+        r.S(); r.S(); r.S();                                   // openClose, origin, orderRef
+        int clientId = r.I();
+        long permId = r.L();
+        bool outsideRth = r.B();
+        return new TwsOpenOrder(orderId, contract, action, qty, type, lmt, aux, tif, account, clientId, permId, outsideRth);
+    }
+
     internal void Dispatch(string[] f)
     {
         if (f.Length == 0) return;
@@ -278,7 +409,24 @@ public sealed class TwsClient : IAsyncDisposable
             case InAccountSummaryEnd:    // 64, version, reqId
                 Complete($"accountSummaryEnd:{L(f[2])}", true);
                 break;
-            case InError:                // 4, version, id, code, message[, ...]
+            case InOrderStatus:
+                OrderStatus?.Invoke(ParseOrderStatus(f));
+                break;
+            case InOpenOrder:
+                var oo = ParseOpenOrder(f);
+                lock (_openOrders) _openOrders.Add(oo);
+                OpenOrder?.Invoke(oo);
+                break;
+            case InOpenOrderEnd:         // 53, version
+                Complete("openOrderEnd", true);
+                break;
+            case InExecDetails:
+                Execution?.Invoke(ParseExecution(f));
+                break;
+            case InCommissionReport:     // 59, version, execId, commission, currency, realizedPNL, yield, yieldRedemptionDate
+                CommissionReport?.Invoke(new TwsCommissionReport(f[2], D(f[3]), f.Length > 4 ? f[4] : "", f.Length > 5 ? D(f[5]) : double.NaN));
+                break;
+            case InError:                // 4, version, id, code, message[, advancedOrderRejectJson (>= 166)]
                 var e = new TwsError((int)L(f[2]), (int)L(f[3]), f.Length > 4 ? f[4] : "");
                 Error?.Invoke(e);
                 if (!e.IsInformational && e.Id > 0 && _summaries.ContainsKey(e.Id) && _waiters.TryRemove($"accountSummaryEnd:{e.Id}", out var w))

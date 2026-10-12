@@ -96,17 +96,32 @@ tft.Fit(y, past, known);                                  // past[t, k], known[t
 TftForecast f = tft.Predict(y, past, knownIncludingFuture);
 double[] median = f.Median, lo = f.At(0.1), hi = f.At(0.9);
 // f.Attention[h, t]: what each future step attends to; f.EncoderImportance / f.DecoderImportance: variable selection weights
+
+// Beberapa deret dengan kovariat statis: satu model, jendela diambil lintas deret, penskalaan target per deret.
+var multi = new TemporalFusionTransformer(lookback: 2, horizon: 6, knownCovariates: 2, options: new TftOptions { Steps = 400 },
+    knownNames: new[] { "sin", "cos" }, staticCovariates: 2, staticNames: new[] { "store_type", "region" });
+multi.Fit(new[] { new TftSeries(y0, Past: null, Known: known0, Static: new[] { 0.0, 1 }),
+                  new TftSeries(y1, Past: null, Known: known1, Static: new[] { 2.0, 0 }) });
+TftForecast g = multi.Predict(series: 1, y1Recent, known: known1IncludingFuture);   // di-unscale dengan mean/std deret 1
+// g.StaticVariables / g.StaticImportance: bobot seleksi variabel statis untuk deret tersebut
 ```
 
 Keduanya ditulis di atas autodiff reverse-mode GraviNum dan dilatih dengan Adam (gradient clipping, mini-batch).
 TFT mengikuti Lim dkk. (2021): gated residual network, variable selection network, encoder-decoder LSTM,
-interpretable multi-head attention (value bersama, mask kausal) dan head kuantil dengan pinball loss. Sebuah
-tes beda-hingga memeriksa gradiennya melalui seluruh model. Hasil terukur di tes (laptop 4 core, CPU):
+interpretable multi-head attention (value bersama, mask kausal) dan head kuantil dengan pinball loss. Kovariat
+statis memiliki variable selection network sendiri dan empat GRN konteks: c_s mengondisikan bobot seleksi
+encoder/decoder, c_e mengondisikan GRN static enrichment setelah LSTM, dan c_c / c_h menginisialisasi cell dan
+hidden state LSTM. `Fit(IReadOnlyList<TftSeries>)` melatih satu model pada beberapa deret (setiap target
+distandarkan dengan mean/std-nya sendiri, kovariat dan statis dengan statistik gabungan); `Predict(series, …)`
+meramal satu deret yang sudah dilatih. Tanpa kovariat statis model tidak berubah (tanpa vektor konteks, tanpa
+lapisan enrichment), dan `Fit`/`Predict` satu deret bekerja seperti sebelumnya. Tes beda-hingga memeriksa
+gradien melalui seluruh model, termasuk setiap parameter jalur statis. Hasil terukur di tes (laptop 4 core, CPU):
 
 | Model | Data | Hasil | Waktu latih |
 |---|---|---|---|
 | N-BEATS (tren + musiman, 800 langkah) | tren + musim 12 langkah + noise | MAE di bawah 0,6× nilai terakhir dan di bawah seasonal naive | ~1 s |
 | TFT (hidden 12, 250 langkah, batch 16) | musim + promo diketahui (+3) + kovariat tak relevan | MAE di bawah 0,6× seasonal naive; interval 80% mencakup 60–97%; menyalakan promo menggeser ramalan 2–4 | ~25 s |
+| TFT multi-deret + 2 statis (hidden 12, 400 langkah, batch 16, lookback 2, horizon 6) | 8 deret, y = (1+s)·(10 + sin(2πt/24 + πs/2)) + 0,3(1+s)·noise, s ∈ {0..3} statis, ditambah statis tak relevan z ∈ {0,1}; setelah penskalaan per deret, deret hanya berbeda fase, yang tak bisa diungkap dua lag | MAE 0,635 vs seasonal naive 0,846 dan TFT yang sama tanpa statis 1,274 (batas noise ≈ 0,60); kepentingan statis s 0,83, z 0,17 (seed lain: MAE 0,63–0,67, bobot s 0,60–0,91) | ~20 s per model |
 
 ## Reinforcement learning
 

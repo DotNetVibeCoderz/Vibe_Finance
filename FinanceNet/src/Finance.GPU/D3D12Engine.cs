@@ -126,10 +126,37 @@ internal sealed class D3D12Engine : IGpuEngine
         => _device.CreateCommittedResource(new HeapProperties(heap), HeapFlags.None,
             ResourceDescription.Buffer(Math.Max(bytes, 16), flags), state);
 
-    private unsafe ID3D12Resource Upload<T>(T[] data) where T : unmanaged
+    /// <summary>
+    /// A grow-only buffer reused across launches (calls are serialised by <see cref="GpuContext"/>), so a launch
+    /// allocates nothing once the sizes have been seen. Tracks the resource state between launches.
+    /// </summary>
+    private sealed class Slot
     {
-        ulong bytes = (ulong)(data.Length * sizeof(T));
-        var buffer = Buffer(HeapType.Upload, bytes, ResourceStates.GenericRead);
+        public ID3D12Resource? Resource;
+        public ulong Capacity;
+        public ResourceStates State;
+    }
+
+    private readonly Slot _fpSlot = new(), _ipSlot = new(), _inUpload = new(), _in = new(), _out = new(), _read = new();
+
+    private ID3D12Resource Ensure(Slot slot, HeapType heap, ulong bytes, ResourceStates initial, ResourceFlags flags = ResourceFlags.None)
+    {
+        if (slot.Resource is null || slot.Capacity < bytes)
+        {
+            slot.Resource?.Dispose();
+            ulong cap = 256;
+            while (cap < bytes) cap *= 2;
+            slot.Resource = Buffer(heap, cap, initial, flags);
+            slot.Capacity = cap;
+            slot.State = initial;
+        }
+        return slot.Resource;
+    }
+
+    private unsafe ID3D12Resource Upload<T>(Slot slot, T[] data) where T : unmanaged
+    {
+        ulong bytes = (ulong)(Math.Max(1, data.Length) * sizeof(T));
+        var buffer = Ensure(slot, HeapType.Upload, bytes, ResourceStates.GenericRead);
         if (data.Length > 0)
         {
             void* ptr;
@@ -140,22 +167,35 @@ internal sealed class D3D12Engine : IGpuEngine
         return buffer;
     }
 
+    private void Transition(Slot slot, ResourceStates to)
+    {
+        if (slot.State == to) return;
+        _list.ResourceBarrierTransition(slot.Resource!, slot.State, to);
+        slot.State = to;
+    }
+
     private unsafe void Run(int kernel, double[] fp, uint[] ip, double[] input, double[] output, int threads)
     {
         int groups = Math.Max(1, (threads + 63) / 64);
         int gx = Math.Min(groups, 65535), gy = (groups + gx - 1) / gx;
-        ulong outBytes = (ulong)output.Length * 8;
-        using var bFp = Upload(fp.Length > 0 ? fp : new double[1]);
-        using var bIp = Upload(ip.Length > 0 ? ip : new uint[1]);
-        using var bInUpload = Upload(input.Length > 0 ? input : new double[1]);
-        using var bIn = Buffer(HeapType.Default, (ulong)Math.Max(1, input.Length) * 8, ResourceStates.CopyDest);
-        using var bOut = Buffer(HeapType.Default, outBytes, ResourceStates.UnorderedAccess, ResourceFlags.AllowUnorderedAccess);
-        using var bRead = Buffer(HeapType.Readback, outBytes, ResourceStates.CopyDest);
+        ulong outBytes = (ulong)Math.Max(1, output.Length) * 8;
+        ulong inBytes = (ulong)Math.Max(1, input.Length) * 8;
+        var bFp = Upload(_fpSlot, fp);
+        var bIp = Upload(_ipSlot, ip);
+        var bInUpload = Upload(_inUpload, input);
+        var bIn = Ensure(_in, HeapType.Default, inBytes, ResourceStates.Common);
+        var bOut = Ensure(_out, HeapType.Default, outBytes, ResourceStates.Common, ResourceFlags.AllowUnorderedAccess);
+        var bRead = Ensure(_read, HeapType.Readback, outBytes, ResourceStates.CopyDest);
 
         _allocator.Reset();
         _list.Reset(_allocator, _pipelines[kernel]);
-        _list.CopyBufferRegion(bIn, 0, bInUpload, 0, (ulong)Math.Max(1, input.Length) * 8);
-        _list.ResourceBarrierTransition(bIn, ResourceStates.CopyDest, ResourceStates.NonPixelShaderResource);
+        if (input.Length > 0)
+        {
+            Transition(_in, ResourceStates.CopyDest);
+            _list.CopyBufferRegion(bIn, 0, bInUpload, 0, inBytes);
+        }
+        Transition(_in, ResourceStates.NonPixelShaderResource);
+        Transition(_out, ResourceStates.UnorderedAccess);
         _list.SetComputeRootSignature(_root);
         _list.SetComputeRoot32BitConstant(0, (uint)(gx * 64), 0);
         _list.SetComputeRootShaderResourceView(1, bFp.GPUVirtualAddress);
@@ -163,7 +203,7 @@ internal sealed class D3D12Engine : IGpuEngine
         _list.SetComputeRootShaderResourceView(3, bIn.GPUVirtualAddress);
         _list.SetComputeRootUnorderedAccessView(4, bOut.GPUVirtualAddress);
         _list.Dispatch((uint)gx, (uint)gy, 1);
-        _list.ResourceBarrierTransition(bOut, ResourceStates.UnorderedAccess, ResourceStates.CopySource);
+        Transition(_out, ResourceStates.CopySource);
         _list.CopyBufferRegion(bRead, 0, bOut, 0, outBytes);
         _list.Close();
         _queue.ExecuteCommandList(_list);
@@ -175,6 +215,7 @@ internal sealed class D3D12Engine : IGpuEngine
         }
         _device.DeviceRemovedReason.CheckError();
 
+        if (output.Length == 0) return;
         void* ptr;
         bRead.Map(0, null, &ptr).CheckError();
         fixed (double* dst = output) System.Buffer.MemoryCopy(ptr, dst, (long)outBytes, (long)outBytes);
@@ -197,6 +238,7 @@ internal sealed class D3D12Engine : IGpuEngine
 
     public void Dispose()
     {
+        foreach (var slot in new[] { _fpSlot, _ipSlot, _inUpload, _in, _out, _read }) slot.Resource?.Dispose();
         foreach (var p in _pipelines) p.Dispose();
         _root.Dispose();
         _fence.Dispose();

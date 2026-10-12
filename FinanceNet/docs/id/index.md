@@ -104,6 +104,7 @@ Semua paket menargetkan `net10.0`. ID NuGet mengikuti pola `Gravicode.<NamaProye
 | `Gravicode.Finance.ML` | Tree, forest, boosting, model linear, labeling, purged CV, peramalan, RL (termasuk RLNet), riset faktor, SHAP |
 | `Gravicode.Finance.LLM` | Klien OpenAI, Azure OpenAI, Anthropic, Ollama, Hugging Face; asisten tool-calling; FinBERT |
 | `Gravicode.Finance.LLM.Local` | FinBERT lokal lewat HF.Net (tanpa API, tanpa kredit) |
+| `Gravicode.Finance.LLM.Ocr` | OCR halaman laporan hasil scan (TrOCR lewat HF.Net) untuk tanya-jawab laporan |
 | `Gravicode.Finance.NewsAnalytics` | Pembaca RSS, sentimen leksikon keuangan, ekstraksi entitas dan event, de-duplikasi MinHash, earnings call |
 | `Gravicode.Finance.Visualization` | Grafik SVG tanpa dependensi dan tearsheet HTML mandiri |
 | `Gravicode.Finance.GPU` | Pricing Monte Carlo GPU, Black-Scholes batch, VaR Monte Carlo (ILGPU, HIP, Vulkan, Direct3D 12) |

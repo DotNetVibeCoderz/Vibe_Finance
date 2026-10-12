@@ -77,4 +77,33 @@ public class SimdLevelTests
         finally { RustAccelerator.SimdLevel = before; }
         Assert.Equal(RustAccelerator.SupportedSimdLevel, RustAccelerator.SimdLevel);
     }
+
+    /// <summary>Vectorised batch Black-Scholes: AVX2 and AVX-512 agree bit for bit (when the CPU has both).</summary>
+    [Fact]
+    public void BlackScholesBatchIsBitIdenticalAcrossVectorLevels()
+    {
+        Assert.True(RustAccelerator.IsAvailable, RustAccelerator.LoadError);
+        if (RustAccelerator.SupportedSimdLevel < NativeSimdLevel.Avx512) Assert.Skip($"CPU supports {RustAccelerator.SupportedSimdLevel} only");
+        int n = 999;
+        var rng = new FastRandom(6);
+        double[] s = new double[n], k = new double[n], t = new double[n], r = new double[n], q = new double[n], v = new double[n];
+        bool[] c = new bool[n];
+        for (int i = 0; i < n; i++)
+        {
+            s[i] = 50 + 100 * rng.NextDouble(); k[i] = 50 + 100 * rng.NextDouble(); t[i] = i % 50 == 0 ? 0 : 3 * rng.NextDouble();
+            r[i] = 0.08 * rng.NextDouble(); q[i] = 0.03 * rng.NextDouble(); v[i] = i % 40 == 0 ? 0 : 0.6 * rng.NextDouble(); c[i] = i % 2 == 0;
+        }
+        var before = RustAccelerator.SimdLevel;
+        try
+        {
+            RustAccelerator.SimdLevel = NativeSimdLevel.Avx2;
+            var a = FastPricing.BlackScholesBatch(new OptionBatch(s, k, t, r, q, v, c));
+            RustAccelerator.SimdLevel = NativeSimdLevel.Avx512;
+            var b = FastPricing.BlackScholesBatch(new OptionBatch(s, k, t, r, q, v, c));
+            Assert.Equal(a.Price, b.Price);
+            Assert.Equal(a.Delta, b.Delta);
+            Assert.Equal(a.Theta, b.Theta);
+        }
+        finally { RustAccelerator.SimdLevel = before; }
+    }
 }

@@ -113,11 +113,11 @@ public class TwsClientTests
             Assert.Equal("1250000.5", summary.Single(v => v.Tag == "NetLiquidation").Value);
 
             await tws.CancelOrderAsync(1001, ct);
-            for (int i = 0; i < 50 && !requests.Contains("4|1|1001"); i++) await Task.Delay(20, ct);
+            for (int i = 0; i < 50 && !requests.Contains("4|1|1001|"); i++) await Task.Delay(20, ct);
         }
         listener.Stop();
         await server;
-        Assert.Contains("4|1|1001", requests);
+        Assert.Contains("4|1|1001|", requests);
         Assert.Contains("64|1", requests);       // positions subscription cancelled after positionEnd
         Assert.Contains(requests, r => r.StartsWith("62|1|") && r.EndsWith("|All|NetLiquidation,TotalCashValue,BuyingPower"));
     }

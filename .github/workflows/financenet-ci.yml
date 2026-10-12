@@ -52,6 +52,14 @@ jobs:
       - name: cargo build
         working-directory: FinanceNet/native/finance-native
         run: cargo build --release
+      # Records which SIMD paths this runner executed (AVX-512 runs only on CPUs that have it).
+      - name: SIMD level
+        working-directory: FinanceNet/native/finance-native
+        shell: bash
+        run: |
+          cargo test --release simd::tests -- --nocapture 2>&1 | tee simd.log
+          level=$(grep -o "SIMD supported on this CPU: [a-z0-9]*" simd.log | head -1)
+          echo "::notice title=SIMD (${{ matrix.rid }})::${level:-unknown}"
       # Runners have no Vulkan FP64 device, so the GPU kernel tests skip; they still compile the crate and shaders.
       - name: cargo test (finance-gpu)
         working-directory: FinanceNet/native/finance-gpu

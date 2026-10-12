@@ -29,6 +29,11 @@ public sealed record TftOptions
 public sealed record TftForecast(double[] Levels, double[,] Quantiles, double[,] Attention, string[] EncoderVariables, double[] EncoderImportance,
     string[] DecoderVariables, double[] DecoderImportance)
 {
+    /// <summary>Names of the static covariates (empty when the model has none).</summary>
+    public string[] StaticVariables { get; init; } = Array.Empty<string>();
+    /// <summary>Static variable-selection weight of each static covariate for the forecast series (sums to 1).</summary>
+    public double[] StaticImportance { get; init; } = Array.Empty<double>();
+
     /// <summary>Forecast at quantile <paramref name="level"/> (must be one of <see cref="Levels"/>).</summary>
     public double[] At(double level)
     {
@@ -42,17 +47,28 @@ public sealed record TftForecast(double[] Levels, double[,] Quantiles, double[,]
 }
 
 /// <summary>
-/// Temporal Fusion Transformer (Lim, Arık, Loeff and Pfister, 2021) for one target series with past-observed and
-/// known-future covariates: per-variable embeddings, variable selection networks, an LSTM encoder-decoder, gated
-/// residual connections, interpretable multi-head attention (heads share the value projection, so the averaged
-/// attention is meaningful) under a causal mask, and quantile outputs trained with the pinball loss.
+/// One training series for multi-series fitting: the target, its aligned covariates (rows = time, oldest first) and its
+/// static covariates (one value per static input, constant over time).
+/// </summary>
+public sealed record TftSeries(double[] Target, double[,]? Past = null, double[,]? Known = null, double[]? Static = null);
+
+/// <summary>
+/// Temporal Fusion Transformer (Lim, Arık, Loeff and Pfister, 2021) for one or several target series with static,
+/// past-observed and known-future covariates: per-variable embeddings, variable selection networks, static covariate
+/// encoders, an LSTM encoder-decoder, static enrichment, gated residual connections, interpretable multi-head attention
+/// (heads share the value projection, so the averaged attention is meaningful) under a causal mask, and quantile outputs
+/// trained with the pinball loss.
 /// </summary>
 /// <remarks>
 /// Built on GraviNum's reverse-mode autodiff with one graph per mini-batch (windows stacked as rows; attention runs over
-/// all of them at once under a per-window causal mask), trained with Adam. Two simplifications relative to the paper: no static covariates (so no static enrichment or
-/// context vectors), and GELU instead of ELU inside the gated residual networks. A relative-position input is added
-/// to both encoder and decoder, so the decoder has an input even without known covariates. Targets and covariates
-/// are standardised with training statistics.
+/// all of them at once under a per-window causal mask), trained with Adam. Static covariates go through their own
+/// variable selection network; four GRNs turn the selected static embedding into the paper's context vectors: c_s (context
+/// of the encoder/decoder selection weights), c_e (context of the static-enrichment GRN after the LSTM), and c_c, c_h (initial
+/// LSTM cell and hidden state). Without static covariates the model has no context vectors and no enrichment layer.
+/// GELU replaces ELU inside the gated residual networks. A relative-position input is added to both encoder and decoder,
+/// so the decoder has an input even without known covariates. Each series' target is standardised by its own training
+/// mean and standard deviation (forecasts are un-scaled with the same statistics); covariates and statics are
+/// standardised with statistics pooled over all training series.
 /// </remarks>
 public sealed class TemporalFusionTransformer
 {
@@ -67,17 +83,25 @@ public sealed class TemporalFusionTransformer
     private readonly Dense _wv, _wo;
     private readonly Grn _positionwise;
     private readonly Dense _output;
-    private double _yMean, _yStd = 1;
+    private readonly Dense[] _embedStatic = Array.Empty<Dense>();
+    private readonly Vsn? _vsnStatic;
+    private readonly Grn? _ctxSelection, _ctxEnrichment, _ctxCell, _ctxHidden, _enrichment;
+    private double[] _yMean = { 0 }, _yStd = { 1 };
+    private double[][] _static = { Array.Empty<double>() };
     private double[] _pMean = Array.Empty<double>(), _pStd = Array.Empty<double>(), _kMean = Array.Empty<double>(), _kStd = Array.Empty<double>();
+    private double[] _sMean = Array.Empty<double>(), _sStd = Array.Empty<double>();
 
     public TemporalFusionTransformer(int lookback, int horizon, int pastCovariates = 0, int knownCovariates = 0, TftOptions? options = null,
-        IReadOnlyList<string>? pastNames = null, IReadOnlyList<string>? knownNames = null)
+        IReadOnlyList<string>? pastNames = null, IReadOnlyList<string>? knownNames = null, int staticCovariates = 0,
+        IReadOnlyList<string>? staticNames = null)
     {
         if (lookback < 2 || horizon < 1) throw new ArgumentException("Need lookback ≥ 2 and horizon ≥ 1.");
+        if (staticCovariates < 0) throw new ArgumentException("Static covariate count cannot be negative.");
         Lookback = lookback;
         Horizon = horizon;
         PastCovariates = pastCovariates;
         KnownCovariates = knownCovariates;
+        StaticCovariates = staticCovariates;
         Options = options ?? new TftOptions();
         _d = Options.Hidden;
         var rng = new FastRandom(Options.Seed);
@@ -85,6 +109,7 @@ public sealed class TemporalFusionTransformer
         EncoderVariables = new[] { "target" }.Concat(Enumerable.Range(0, pastCovariates).Select(i => pastNames?[i] ?? $"past{i + 1}"))
             .Concat(known).Append("position").ToArray();
         DecoderVariables = known.Append("position").ToArray();
+        StaticVariables = Enumerable.Range(0, staticCovariates).Select(i => staticNames?[i] ?? $"static{i + 1}").ToArray();
 
         _embedEnc = EncoderVariables.Select(_ => new Dense(_ps, 1, _d, rng)).ToArray();
         _embedDec = DecoderVariables.Select(_ => new Dense(_ps, 1, _d, rng)).ToArray();
@@ -105,15 +130,36 @@ public sealed class TemporalFusionTransformer
         _wo = new Dense(_ps, dk, _d, rng);
         _positionwise = new Grn(_ps, _d, _d, rng);
         _output = new Dense(_ps, _d, Options.Quantiles.Length, rng);
+
+        // Static path last, so a model without statics is parameter-for-parameter the same as before, and the static
+        // parameters are a contiguous tail of the parameter list.
+        StaticParameterStart = _ps.Tensors.Count;
+        if (staticCovariates > 0)
+        {
+            _embedStatic = StaticVariables.Select(_ => new Dense(_ps, 1, _d, rng)).ToArray();
+            _vsnStatic = new Vsn(_ps, staticCovariates, _d, rng);
+            _ctxSelection = new Grn(_ps, _d, _d, rng);
+            _ctxEnrichment = new Grn(_ps, _d, _d, rng);
+            _ctxCell = new Grn(_ps, _d, _d, rng);
+            _ctxHidden = new Grn(_ps, _d, _d, rng);
+            _vsnEnc.AttachContext(_ps, _d, rng);
+            _vsnDec.AttachContext(_ps, _d, rng);
+            _enrichment = new Grn(_ps, _d, _d, rng);
+            _enrichment.AttachContext(_ps, _d, rng);
+        }
     }
 
     public int Lookback { get; }
     public int Horizon { get; }
     public int PastCovariates { get; }
     public int KnownCovariates { get; }
+    public int StaticCovariates { get; }
     public TftOptions Options { get; }
     public string[] EncoderVariables { get; }
     public string[] DecoderVariables { get; }
+    public string[] StaticVariables { get; }
+    /// <summary>Number of series the model was last trained on (1 after the single-series <see cref="Fit(ReadOnlySpan{double}, double[,], double[,])"/>).</summary>
+    public int SeriesCount => _yMean.Length;
     public int ParameterCount => _ps.Count;
     /// <summary>Mean pinball loss per training step (standardised units), every 10 steps.</summary>
     public List<double> LossHistory { get; } = new();
@@ -143,16 +189,22 @@ public sealed class TemporalFusionTransformer
         }
     }
 
-    /// <summary>Gated residual network: LayerNorm(skip(a) + GLU(W₁·GELU(W₂·a))).</summary>
+    /// <summary>
+    /// Gated residual network: LayerNorm(skip(a) + GLU(W₁·GELU(W₂·a + W₃·c))); the context term W₃·c (no bias) exists
+    /// once <see cref="AttachContext"/> has been called.
+    /// </summary>
     private sealed class Grn
     {
         private readonly Dense _w2, _w1;
         private readonly Dense? _skip;
         private readonly Glu _glu;
         private readonly Norm _norm;
+        private readonly int _output;
+        private Tensor? _w3;
 
         public Grn(NeuralParameters ps, int input, int output, FastRandom rng)
         {
+            _output = output;
             _w2 = new Dense(ps, input, output, rng);
             _w1 = new Dense(ps, output, output, rng);
             _skip = input == output ? null : new Dense(ps, input, output, rng);
@@ -160,10 +212,20 @@ public sealed class TemporalFusionTransformer
             _norm = new Norm(ps, output);
         }
 
-        public Tensor Forward(Tensor a) => _norm.Forward((_skip?.Forward(a) ?? a) + _glu.Forward(_w1.Forward(Gelu(_w2.Forward(a)))));
+        public void AttachContext(NeuralParameters ps, int context, FastRandom rng) => _w3 = ps.Glorot(context, _output, rng);
+
+        public Tensor Forward(Tensor a, Tensor? context = null)
+        {
+            var pre = _w2.Forward(a);
+            if (_w3 is not null && context is not null) pre = pre + context.MatMul(_w3);
+            return _norm.Forward((_skip?.Forward(a) ?? a) + _glu.Forward(_w1.Forward(Gelu(pre))));
+        }
     }
 
-    /// <summary>Variable selection network: softmax weights from a GRN over all embeddings, each embedding refined by its own GRN.</summary>
+    /// <summary>
+    /// Variable selection network: softmax weights from a GRN over all embeddings (optionally conditioned on a static
+    /// context), each embedding refined by its own GRN.
+    /// </summary>
     private sealed class Vsn
     {
         private readonly Grn _weights;
@@ -175,11 +237,13 @@ public sealed class TemporalFusionTransformer
             _each = Enumerable.Range(0, variables).Select(_ => new Grn(ps, d, d, rng)).ToArray();
         }
 
-        public (Tensor Output, double[] Weights) Forward(Tensor[] embeddings)
+        public void AttachContext(NeuralParameters ps, int context, FastRandom rng) => _weights.AttachContext(ps, context, rng);
+
+        public (Tensor Output, double[] Weights) Forward(Tensor[] embeddings, Tensor? context = null)
         {
             var flat = embeddings[0];
             for (int i = 1; i < embeddings.Length; i++) flat = TensorOps.ConcatColumns(flat, embeddings[i]);
-            var w = Softmax(_weights.Forward(flat));
+            var w = Softmax(_weights.Forward(flat, context));
             Tensor? sum = null;
             for (int i = 0; i < embeddings.Length; i++)
             {
@@ -221,7 +285,7 @@ public sealed class TemporalFusionTransformer
         return (o * cNext.Tanh(), cNext);
     }
 
-    /// <summary>Stacks [1, d] rows into a [T, d] matrix (via columns of the transpose, the op the tape has).</summary>
+    /// <summary>Stacks [r, d] blocks into a [Σr, d] matrix (via columns of the transpose, the op the tape has).</summary>
     private static Tensor StackRows(IReadOnlyList<Tensor> rows)
     {
         var acc = rows[0].T();
@@ -237,15 +301,43 @@ public sealed class TemporalFusionTransformer
         return Tensor.Constant(new NdArray(data, rows.Length, 1));
     }
 
+    /// <summary>One static variable across the batch as a [batch, 1] column.</summary>
+    private static Tensor Column(double[][] statics, int v)
+    {
+        var data = new double[statics.Length];
+        for (int b = 0; b < statics.Length; b++) data[b] = statics[b][v];
+        return Tensor.Constant(new NdArray(data, statics.Length, 1));
+    }
+
     /// <summary>
     /// Batched forward pass on standardised inputs: <paramref name="enc"/>[b][t][v] (past steps), <paramref name="dec"/>[b][h][v]
-    /// (future steps). Every step runs on [batch, d] matrices; attention runs once over all windows stacked as [T·batch, d]
-    /// rows (row = t·batch + b) with a mask that keeps each window to itself and causal. Returns [horizon·batch, quantiles]
-    /// (row = h·batch + b) plus the first window's attention and the batch-average variable weights.
+    /// (future steps), <paramref name="statics"/>[b][s] (static covariates; ignored when the model has none). Every step
+    /// runs on [batch, d] matrices; attention runs once over all windows stacked as [T·batch, d] rows (row = t·batch + b)
+    /// with a mask that keeps each window to itself and causal. Returns [horizon·batch, quantiles] (row = h·batch + b) plus
+    /// the first window's attention and the batch-average variable weights.
     /// </summary>
-    private (Tensor Output, double[,] Attention, double[] EncImportance, double[] DecImportance) Forward(double[][][] enc, double[][][] dec)
+    private (Tensor Output, double[,] Attention, double[] EncImportance, double[] DecImportance, double[] StaticImportance) Forward(
+        double[][][] enc, double[][][] dec, double[][]? statics = null)
     {
         int B = enc.Length, L = enc[0].Length, H = dec[0].Length, T = L + H;
+
+        // Static covariate encoders: selected static embedding ζ → context vectors c_s, c_e, c_c, c_h ([B, d] each).
+        Tensor? cs = null, ce = null;
+        Tensor h = Tensor.Constant(NdArray.Zeros(B, _d)), c = Tensor.Constant(NdArray.Zeros(B, _d));
+        var statImp = new double[StaticCovariates];
+        if (StaticCovariates > 0)
+        {
+            if (statics is null || statics.Length != B) throw new ArgumentException("Static covariates are required for every window.");
+            var embeddings = _embedStatic.Select((e, v) => e.Forward(Column(statics, v))).ToArray();
+            var (zeta, w) = _vsnStatic!.Forward(embeddings);
+            for (int b = 0; b < B; b++)
+                for (int v = 0; v < StaticCovariates; v++) statImp[v] += w[b * StaticCovariates + v] / B;
+            cs = _ctxSelection!.Forward(zeta);
+            ce = _ctxEnrichment!.Forward(zeta);
+            c = _ctxCell!.Forward(zeta);
+            h = _ctxHidden!.Forward(zeta);
+        }
+
         var encImp = new double[EncoderVariables.Length];
         var decImp = new double[DecoderVariables.Length];
         var selected = new List<Tensor>(T);
@@ -256,7 +348,7 @@ public sealed class TemporalFusionTransformer
             int step = past ? t : t - L;
             var embed = past ? _embedEnc : _embedDec;
             var embeddings = embed.Select((e, v) => e.Forward(Column(source, step, v))).ToArray();
-            var (o, w) = (past ? _vsnEnc : _vsnDec).Forward(embeddings);
+            var (o, w) = (past ? _vsnEnc : _vsnDec).Forward(embeddings, cs);
             selected.Add(o);
             var imp = past ? encImp : decImp;
             int vars = imp.Length;
@@ -264,7 +356,6 @@ public sealed class TemporalFusionTransformer
                 for (int v = 0; v < vars; v++) imp[v] += w[b * vars + v] / (B * (past ? L : H));
         }
 
-        Tensor h = Tensor.Constant(NdArray.Zeros(B, _d)), c = Tensor.Constant(NdArray.Zeros(B, _d));
         var phi = new List<Tensor>(T);
         for (int t = 0; t < T; t++)
         {
@@ -272,6 +363,8 @@ public sealed class TemporalFusionTransformer
             phi.Add(_normLstm.Forward(selected[t] + _gateLstm.Forward(h)));
         }
         var Phi = StackRows(phi);                                              // [T·B, d], row = t·B + b
+        // Static enrichment θ = GRN(φ, c_e), with c_e repeated for every time step.
+        var Theta = ce is null ? Phi : _enrichment!.Forward(Phi, StackRows(Enumerable.Repeat(ce, T).ToArray()));
 
         int N = T * B;
         var mask = new double[N * N];
@@ -279,13 +372,13 @@ public sealed class TemporalFusionTransformer
             for (int j = 0; j < N; j++)
                 if (i % B != j % B || j / B > i / B) mask[i * N + j] = -1e9;   // other windows, or the future
         var maskT = Tensor.Constant(new NdArray(mask, N, N));
-        var V = _wv.Forward(Phi);
+        var V = _wv.Forward(Theta);
         double scale = 1 / Math.Sqrt(V.Shape[1]);
         Tensor? mix = null;
         var attention = new double[H, T];
         foreach (var (wq, wk) in _wq.Zip(_wk))
         {
-            var a = Softmax(wq.Forward(Phi).MatMul(wk.Forward(Phi).T()) * scale, maskT);
+            var a = Softmax(wq.Forward(Theta).MatMul(wk.Forward(Theta).T()) * scale, maskT);
             var av = a.Value.ToArray();
             for (int r = 0; r < H; r++)
                 for (int j = 0; j < T; j++) attention[r, j] += av[((L + r) * B) * N + j * B] / _wq.Length;   // window 0
@@ -294,23 +387,24 @@ public sealed class TemporalFusionTransformer
         }
         var attn = _wo.Forward(mix! * (1.0 / _wq.Length));
 
-        var delta = _normAttn.Forward(Phi + _gateAttn.Forward(attn));
+        var delta = _normAttn.Forward(Theta + _gateAttn.Forward(attn));
         var psi = _positionwise.Forward(delta);
         var outRows = _normOut.Forward(Phi + _gateOut.Forward(psi));
         var decoderRows = TensorOps.SliceColumns(outRows.T(), L * B, H * B).T();   // [H·B, d], row = h·B + b
-        return (_output.Forward(decoderRows), attention, encImp, decImp);
+        return (_output.Forward(decoderRows), attention, encImp, decImp, statImp);
     }
 
     /// <summary>
     /// Test hook: the pinball loss on one fixed window and its autodiff gradient with respect to one parameter element,
-    /// next to a central finite difference of the same loss.
+    /// next to a central finite difference of the same loss. <paramref name="statics"/> are standardised static inputs.
     /// </summary>
-    internal (double Analytic, double Numeric) CheckGradient(double[][] enc, double[][] dec, double[] truth, int parameter, int element, double h = 1e-5)
+    internal (double Analytic, double Numeric) CheckGradient(double[][] enc, double[][] dec, double[] truth, int parameter, int element,
+        double h = 1e-5, double[]? statics = null)
     {
         var q = Options.Quantiles;
         double Loss(bool backward)
         {
-            var (outp, _, _, _) = Forward(new[] { enc }, new[] { dec });
+            var (outp, _, _, _, _) = Forward(new[] { enc }, new[] { dec }, statics is null ? null : new[] { statics });
             var t = new double[Horizon * q.Length];
             var lev = new double[Horizon * q.Length];
             for (int i = 0; i < Horizon; i++)
@@ -337,6 +431,9 @@ public sealed class TemporalFusionTransformer
     }
 
     internal int ParameterTensorCount => _ps.Tensors.Count;
+    /// <summary>Index of the first static-path parameter tensor (static embeddings, static VSN, context GRNs, context weights, enrichment).</summary>
+    internal int StaticParameterStart { get; }
+    internal int ParameterTensorSize(int parameter) => _ps.Tensors[parameter].Size;
 
     // ------------------------------------------------------------------ data
 
@@ -347,15 +444,16 @@ public sealed class TemporalFusionTransformer
         return (m, s > 1e-12 ? s : 1);
     }
 
-    private double[][] EncoderRows(ReadOnlySpan<double> y, double[,]? past, double[,]? known, int start)
+    private double[][] EncoderRows(ReadOnlySpan<double> y, double[,]? past, double[,]? known, int start, int series)
     {
+        double yMean = _yMean[series], yStd = _yStd[series];
         var rows = new double[Lookback][];
         for (int t = 0; t < Lookback; t++)
         {
             int i = start + t;
             var r = new double[EncoderVariables.Length];
             int k = 0;
-            r[k++] = (y[i] - _yMean) / _yStd;
+            r[k++] = (y[i] - yMean) / yStd;
             for (int j = 0; j < PastCovariates; j++) r[k++] = (past![i, j] - _pMean[j]) / _pStd[j];
             for (int j = 0; j < KnownCovariates; j++) r[k++] = (known![i, j] - _kMean[j]) / _kStd[j];
             r[k] = (t - Lookback) / (double)Lookback;
@@ -378,6 +476,8 @@ public sealed class TemporalFusionTransformer
         return rows;
     }
 
+    private double[] StaticRow(int series) => Enumerable.Range(0, StaticCovariates).Select(j => (_static[series][j] - _sMean[j]) / _sStd[j]).ToArray();
+
     private void CheckCovariates(int n, double[,]? past, double[,]? known)
     {
         if (PastCovariates > 0 && (past is null || past.GetLength(0) != n || past.GetLength(1) != PastCovariates))
@@ -388,39 +488,75 @@ public sealed class TemporalFusionTransformer
 
     /// <summary>
     /// Trains on a target series with aligned covariates (rows = time, oldest first). <paramref name="known"/> must have the
-    /// same rows as <paramref name="target"/>. Returns the final batch loss.
+    /// same rows as <paramref name="target"/>. Returns the final batch loss. Not available for models with static
+    /// covariates (a single series' statics are constant; use <see cref="Fit(IReadOnlyList{TftSeries})"/>).
     /// </summary>
     public double Fit(ReadOnlySpan<double> target, double[,]? past = null, double[,]? known = null)
     {
-        int n = target.Length;
-        if (n < Lookback + Horizon + 1) throw new ArgumentException("Series shorter than lookback + horizon.");
-        CheckCovariates(n, past, known);
-        if (KnownCovariates > 0 && known!.GetLength(0) != n) throw new ArgumentException("Known covariates must align with the target when training.");
-        (_yMean, _yStd) = Stats(target.ToArray());
-        _pMean = new double[PastCovariates]; _pStd = new double[PastCovariates];
-        for (int j = 0; j < PastCovariates; j++) (_pMean[j], _pStd[j]) = Stats(Enumerable.Range(0, n).Select(i => past![i, j]));
-        _kMean = new double[KnownCovariates]; _kStd = new double[KnownCovariates];
-        for (int j = 0; j < KnownCovariates; j++) (_kMean[j], _kStd[j]) = Stats(Enumerable.Range(0, n).Select(i => known![i, j]));
+        if (StaticCovariates > 0) throw new InvalidOperationException("A model with static covariates is trained on a list of TftSeries.");
+        return Fit(new[] { new TftSeries(target.ToArray(), past, known) });
+    }
 
-        var y = target.ToArray();
+    /// <summary>
+    /// Trains one model on several series. Each mini-batch samples windows uniformly over all windows of all series. Each
+    /// series' target is standardised by its own mean and standard deviation; covariates and static covariates use
+    /// statistics pooled over the series. Known covariates must have the same rows as their target. Returns the final batch loss.
+    /// </summary>
+    public double Fit(IReadOnlyList<TftSeries> series)
+    {
+        if (series.Count == 0) throw new ArgumentException("Need at least one series.");
+        foreach (var s in series)
+        {
+            int n = s.Target.Length;
+            if (n < Lookback + Horizon + 1) throw new ArgumentException("Series shorter than lookback + horizon.");
+            CheckCovariates(n, s.Past, s.Known);
+            if (KnownCovariates > 0 && s.Known!.GetLength(0) != n) throw new ArgumentException("Known covariates must align with the target when training.");
+            if (StaticCovariates > 0 && (s.Static is null || s.Static.Length != StaticCovariates))
+                throw new ArgumentException($"Every series needs {StaticCovariates} static covariates.");
+        }
+        int S = series.Count;
+        _yMean = new double[S]; _yStd = new double[S];
+        for (int i = 0; i < S; i++) (_yMean[i], _yStd[i]) = Stats(series[i].Target);
+        _pMean = new double[PastCovariates]; _pStd = new double[PastCovariates];
+        for (int j = 0; j < PastCovariates; j++)
+            (_pMean[j], _pStd[j]) = Stats(series.SelectMany(s => Enumerable.Range(0, s.Target.Length).Select(i => s.Past![i, j])));
+        _kMean = new double[KnownCovariates]; _kStd = new double[KnownCovariates];
+        for (int j = 0; j < KnownCovariates; j++)
+            (_kMean[j], _kStd[j]) = Stats(series.SelectMany(s => Enumerable.Range(0, s.Target.Length).Select(i => s.Known![i, j])));
+        _static = series.Select(s => s.Static?.ToArray() ?? Array.Empty<double>()).ToArray();
+        _sMean = new double[StaticCovariates]; _sStd = new double[StaticCovariates];
+        for (int j = 0; j < StaticCovariates; j++) (_sMean[j], _sStd[j]) = Stats(_static.Select(s => s[j]));
+        var statics = Enumerable.Range(0, S).Select(StaticRow).ToArray();
+
+        // Window w of the pooled index belongs to the series whose cumulative count first exceeds it.
+        var offsets = new int[S + 1];
+        for (int i = 0; i < S; i++) offsets[i + 1] = offsets[i] + series[i].Target.Length - Lookback - Horizon + 1;
         var rng = new FastRandom(Options.Seed + 1);
-        int windows = n - Lookback - Horizon + 1;
         var q = Options.Quantiles;
         double last = double.NaN;
         for (int step = 0; step < Options.Steps; step++)
         {
             int B = Options.BatchSize;
-            var starts = Enumerable.Range(0, B).Select(_ => rng.NextInt(windows)).ToArray();
-            var (outp, _, _, _) = Forward(starts.Select(s => EncoderRows(y, past, known, s)).ToArray(),
-                starts.Select(s => DecoderRows(known, s + Lookback)).ToArray());
+            var picks = Enumerable.Range(0, B).Select(_ =>
+            {
+                int w = rng.NextInt(offsets[S]);
+                int s = Array.BinarySearch(offsets, w);
+                s = s >= 0 ? s : ~s - 1;
+                return (Series: s, Start: w - offsets[s]);
+            }).ToArray();
+            var (outp, _, _, _, _) = Forward(
+                picks.Select(p => EncoderRows(series[p.Series].Target, series[p.Series].Past, series[p.Series].Known, p.Start, p.Series)).ToArray(),
+                picks.Select(p => DecoderRows(series[p.Series].Known, p.Start + Lookback)).ToArray(),
+                StaticCovariates > 0 ? picks.Select(p => statics[p.Series]).ToArray() : null);
             var truth = new double[Horizon * B * q.Length];
             var lev = new double[Horizon * B * q.Length];
             for (int h = 0; h < Horizon; h++)
                 for (int b = 0; b < B; b++)
                     for (int k = 0; k < q.Length; k++)
                     {
+                        var (s, start) = picks[b];
                         int i = (h * B + b) * q.Length + k;
-                        truth[i] = (y[starts[b] + Lookback + h] - _yMean) / _yStd;
+                        truth[i] = (series[s].Target[start + Lookback + h] - _yMean[s]) / _yStd[s];
                         lev[i] = q[k];
                     }
             // Pinball loss: q·relu(e) + (1 − q)·relu(−e), e = y − ŷ.
@@ -437,24 +573,43 @@ public sealed class TemporalFusionTransformer
 
     /// <summary>
     /// Forecasts the <see cref="Horizon"/> steps after the end of <paramref name="target"/>. Past covariates align with the
-    /// target; known covariates must cover the target's rows plus the horizon.
+    /// target; known covariates must cover the target's rows plus the horizon. For a model trained on one series without
+    /// static covariates; otherwise use <see cref="Predict(int, ReadOnlySpan{double}, double[,], double[,])"/>.
     /// </summary>
     public TftForecast Predict(ReadOnlySpan<double> target, double[,]? past = null, double[,]? known = null)
     {
+        if (StaticCovariates > 0 || SeriesCount > 1)
+            throw new InvalidOperationException("This model was trained on several series or with static covariates; pass the series index.");
+        return Predict(0, target, past, known);
+    }
+
+    /// <summary>
+    /// Forecasts the <see cref="Horizon"/> steps after <paramref name="target"/> (the recent history of training series
+    /// <paramref name="series"/>), using that series' static covariates and target scaling.
+    /// </summary>
+    public TftForecast Predict(int series, ReadOnlySpan<double> target, double[,]? past = null, double[,]? known = null)
+    {
+        if (series < 0 || series >= SeriesCount) throw new ArgumentOutOfRangeException(nameof(series), $"The model knows {SeriesCount} series.");
+        if (StaticCovariates > 0 && _static[series].Length != StaticCovariates) throw new InvalidOperationException("The model has not been trained.");
         int n = target.Length;
         if (n < Lookback) throw new ArgumentException($"Need at least {Lookback} observations.");
         CheckCovariates(n, past, known);
         if (KnownCovariates > 0 && known!.GetLength(0) < n + Horizon) throw new ArgumentException("Known covariates must extend over the horizon.");
-        var (outp, attention, encImp, decImp) = Forward(new[] { EncoderRows(target, past, known, n - Lookback) }, new[] { DecoderRows(known, n) });
+        var (outp, attention, encImp, decImp, statImp) = Forward(new[] { EncoderRows(target, past, known, n - Lookback, series) },
+            new[] { DecoderRows(known, n) }, StaticCovariates > 0 ? new[] { StaticRow(series) } : null);
         var v = outp.Value.ToArray();
         int nq = Options.Quantiles.Length;
         var quantiles = new double[Horizon, nq];
         for (int h = 0; h < Horizon; h++)
         {
             // Sort each step's quantiles so they never cross.
-            var row = Enumerable.Range(0, nq).Select(k => v[h * nq + k] * _yStd + _yMean).Order().ToArray();
+            var row = Enumerable.Range(0, nq).Select(k => v[h * nq + k] * _yStd[series] + _yMean[series]).Order().ToArray();
             for (int k = 0; k < nq; k++) quantiles[h, k] = row[k];
         }
-        return new TftForecast(Options.Quantiles, quantiles, attention, EncoderVariables, encImp, DecoderVariables, decImp);
+        return new TftForecast(Options.Quantiles, quantiles, attention, EncoderVariables, encImp, DecoderVariables, decImp)
+        {
+            StaticVariables = StaticVariables,
+            StaticImportance = statImp,
+        };
     }
 }

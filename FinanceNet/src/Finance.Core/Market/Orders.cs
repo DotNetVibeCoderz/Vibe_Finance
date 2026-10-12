@@ -8,6 +8,12 @@ public enum TimeInForce { Day, Gtc, Ioc, Fok }
 
 public enum OrderStatus { New, PartiallyFilled, Filled, Cancelled, Rejected }
 
+/// <summary>Which price a stop / conditional order (or an attached take-profit / stop-loss) is triggered by.</summary>
+public enum TriggerPriceType { Last, Mark, Index }
+
+/// <summary>Direction the trigger price must cross: rising to it (buy stops) or falling to it (sell stops).</summary>
+public enum TriggerDirection { Rising, Falling }
+
 public static class SideExtensions
 {
     /// <summary>+1 for buy, -1 for sell.</summary>
@@ -48,6 +54,28 @@ public sealed class Order
     public string? Tag { get; init; }
     public DateTime CreatedAt { get; init; }
 
+    /// <summary>Price that triggers a <see cref="OrderType.Stop"/> / <see cref="OrderType.StopLimit"/> order (its stop price).</summary>
+    public double? TriggerPrice => Type is OrderType.Stop or OrderType.StopLimit ? StopPrice : null;
+
+    /// <summary>Trigger reference for stop orders and attached TP/SL; null leaves the venue default (usually last price).</summary>
+    public TriggerPriceType? TriggerBy { get; init; }
+
+    /// <summary>Explicit trigger direction; null derives it from the side (see <see cref="EffectiveTriggerDirection"/>).</summary>
+    public TriggerDirection? TriggerDirection { get; init; }
+
+    /// <summary>Rising for buy stops and falling for sell stops unless <see cref="TriggerDirection"/> is set.</summary>
+    public TriggerDirection EffectiveTriggerDirection
+        => TriggerDirection ?? (Side == Side.Buy ? Market.TriggerDirection.Rising : Market.TriggerDirection.Falling);
+
+    /// <summary>Take-profit trigger attached to this order (venues that support attached TP/SL).</summary>
+    public double? TakeProfitPrice { get; init; }
+
+    /// <summary>Stop-loss trigger attached to this order (venues that support attached TP/SL).</summary>
+    public double? StopLossPrice { get; init; }
+
+    /// <summary>True when the order is a stop / conditional order.</summary>
+    public bool IsConditional => Type is OrderType.Stop or OrderType.StopLimit;
+
     public OrderStatus Status { get; set; } = OrderStatus.New;
     public double FilledQuantity { get; private set; }
     public double AverageFillPrice { get; private set; }
@@ -67,6 +95,8 @@ public sealed class Order
     public static Order MarketSell(string symbol, double qty) => new(symbol, Side.Sell, qty);
     public static Order LimitBuy(string symbol, double qty, double price) => new(symbol, Side.Buy, qty, OrderType.Limit, price);
     public static Order LimitSell(string symbol, double qty, double price) => new(symbol, Side.Sell, qty, OrderType.Limit, price);
+    public static Order StopMarket(string symbol, Side side, double qty, double stopPrice) => new(symbol, side, qty, OrderType.Stop, stopPrice: stopPrice);
+    public static Order StopLimit(string symbol, Side side, double qty, double stopPrice, double limitPrice) => new(symbol, side, qty, OrderType.StopLimit, limitPrice, stopPrice);
 
     public override string ToString() => $"#{Id} {Side} {Quantity} {Symbol} {Type}{(LimitPrice is { } p ? $" @{p}" : "")} [{Status}]";
 }

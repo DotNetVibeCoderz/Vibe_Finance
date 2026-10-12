@@ -57,6 +57,15 @@ pub struct GpuDevice {
     pipelines: [wgpu::ComputePipeline; 4],
     pub name: String,
     max_buffer: u64,
+    cache: std::sync::Mutex<BufferCache>,
+}
+
+/// Grow-only buffers reused across launches (bindings 0-3 plus the read-back staging buffer) and the bind group
+/// over them, so a launch allocates nothing once the sizes have been seen.
+#[derive(Default)]
+struct BufferCache {
+    buffers: [Option<(wgpu::Buffer, u64)>; 5],
+    group: Option<wgpu::BindGroup>,
 }
 
 #[derive(Clone, Copy)]
@@ -111,51 +120,61 @@ impl GpuDevice {
         };
         let pipelines = [make("mc_european"), make("mc_asian"), make("black_scholes"), make("portfolio_return")];
         let max_buffer = (limits.max_storage_buffer_binding_size as u64).min(limits.max_buffer_size);
-        Ok(GpuDevice { device, queue, layout, pipelines, name: info.name, max_buffer })
+        Ok(GpuDevice { device, queue, layout, pipelines, name: info.name, max_buffer, cache: Default::default() })
     }
 
     /// Runs `kernel` over `threads` invocations and returns `out_len` doubles from binding 3.
     pub fn run(&self, kernel: Kernel, fp: &[f64], ip: &[u32], input: &[f64], out_len: usize, threads: u32) -> Result<Vec<f64>, String> {
-        use wgpu::util::DeviceExt;
-        let bytes = |v: &[f64]| -> Vec<u8> { v.iter().flat_map(|x| x.to_le_bytes()).collect() };
-        let ibytes = |v: &[u32]| -> Vec<u8> { v.iter().flat_map(|x| x.to_le_bytes()).collect() };
-        let pad = |mut b: Vec<u8>| {
-            if b.is_empty() {
-                b.resize(8, 0);
-            }
-            b
-        };
-        let in_bytes = pad(bytes(input));
+        // Zero-copy byte views (f64/u32 have no padding; GPUs read little-endian like every supported host).
+        fn as_bytes<T: Copy>(v: &[T]) -> &[u8] {
+            unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, std::mem::size_of_val(v)) }
+        }
+        let (fp_b, ip_b, in_b) = (as_bytes(fp), as_bytes(ip), as_bytes(input));
         let out_size = (out_len.max(1) * 8) as u64;
-        if in_bytes.len() as u64 > self.max_buffer || out_size > self.max_buffer {
+        if in_b.len() as u64 > self.max_buffer || out_size > self.max_buffer {
             return Err(format!("buffer larger than the device limit ({} bytes)", self.max_buffer));
         }
-        let usage = wgpu::BufferUsages::STORAGE;
-        let b0 = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: &pad(bytes(fp)), usage });
-        let b1 = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: &pad(ibytes(ip)), usage });
-        let b2 = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: None, contents: &in_bytes, usage });
-        let b3 = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: out_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: out_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &self.layout,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: b0.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 1, resource: b1.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: b2.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: b3.as_entire_binding() },
-            ],
-        });
+        let mut cache = self.cache.lock().map_err(|_| "buffer cache poisoned".to_string())?;
+        let storage_in = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST;
+        let wanted = [
+            (fp_b.len() as u64, storage_in),
+            (ip_b.len() as u64, storage_in),
+            (in_b.len() as u64, storage_in),
+            (out_size, wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC),
+            (out_size, wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST),
+        ];
+        let mut rebuilt = false;
+        for (slot, (size, usage)) in cache.buffers.iter_mut().zip(wanted) {
+            if slot.as_ref().is_none_or(|(_, cap)| *cap < size) {
+                let mut cap = 256u64;
+                while cap < size {
+                    cap *= 2;
+                }
+                let cap = cap.min(self.max_buffer.max(size));
+                *slot = Some((self.device.create_buffer(&wgpu::BufferDescriptor { label: None, size: cap, usage, mapped_at_creation: false }), cap));
+                rebuilt = true;
+            }
+        }
+        if rebuilt || cache.group.is_none() {
+            let b = |i: usize| cache.buffers[i].as_ref().unwrap().0.as_entire_binding();
+            let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout: &self.layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: b(0) },
+                    wgpu::BindGroupEntry { binding: 1, resource: b(1) },
+                    wgpu::BindGroupEntry { binding: 2, resource: b(2) },
+                    wgpu::BindGroupEntry { binding: 3, resource: b(3) },
+                ],
+            });
+            cache.group = Some(group);
+        }
+        let buf = |i: usize| &cache.buffers[i].as_ref().unwrap().0;
+        for (i, data) in [(0usize, fp_b), (1, ip_b), (2, in_b)] {
+            if !data.is_empty() {
+                self.queue.write_buffer(buf(i), 0, data);
+            }
+        }
         // 64 threads per group; more than 65535 groups spill into a second grid dimension.
         let groups = threads.div_ceil(64).max(1);
         let (gx, gy) = if groups <= 65535 { (groups, 1) } else { (65535, groups.div_ceil(65535)) };
@@ -163,12 +182,12 @@ impl GpuDevice {
         {
             let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
             pass.set_pipeline(&self.pipelines[kernel as usize]);
-            pass.set_bind_group(0, &group, &[]);
+            pass.set_bind_group(0, cache.group.as_ref().unwrap(), &[]);
             pass.dispatch_workgroups(gx, gy, 1);
         }
-        enc.copy_buffer_to_buffer(&b3, 0, &staging, 0, out_size);
+        enc.copy_buffer_to_buffer(buf(3), 0, buf(4), 0, out_size);
         self.queue.submit([enc.finish()]);
-        let slice = staging.slice(..);
+        let slice = buf(4).slice(..out_size);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
             let _ = tx.send(r);
@@ -176,9 +195,11 @@ impl GpuDevice {
         let _ = self.device.poll(wgpu::Maintain::Wait);
         rx.recv().map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
         let data = slice.get_mapped_range();
-        let out = data.chunks_exact(8).take(out_len).map(|c| f64::from_le_bytes(c.try_into().unwrap())).collect();
+        let mut out = vec![0.0f64; out_len];
+        let dst = unsafe { std::slice::from_raw_parts_mut(out.as_mut_ptr() as *mut u8, out_len * 8) };
+        dst.copy_from_slice(&data[..out_len * 8]);
         drop(data);
-        staging.unmap();
+        buf(4).unmap();
         Ok(out)
     }
 }

@@ -29,12 +29,13 @@ Spesifikasi acuan adalah [solution-design.md](solution-design.md). Status harian
   candlestick patterns, rolling volume profile and market-profile TPO (done 2026-10-11).
 - ✅ **Pricing**: Dupire local volatility with an MC pricer, Hull-White / G2++ (exact simulation,
   closed-form bonds/caps, Jamshidian), Bermudan swaptions via LSMC, zero-coupon and YoY inflation swaps,
-  cross-currency swaps with basis, ISDA-style CDS with upfront and CS01 (done 2026-10-11). Open: IMM
-  date schedules for CDS, YoY convexity, MtM-resetting cross-currency swaps.
+  cross-currency swaps with basis, ISDA-style CDS with upfront and CS01 (done 2026-10-11); IMM/semi-annual-roll CDS
+  schedules, YoY convexity (Mercurio) and MtM-resetting cross-currency swaps (done 2026-10-13, 0.10.0).
 - ✅ **Risk**: filtered historical simulation (1-day and bootstrapped multi-period), EVT
   (peaks-over-threshold) VaR/ES, liquidity-adjusted VaR, historical incremental/component VaR for
-  what-if trades, FRTB-SA delta aggregation with GIRR parameters (done 2026-10-11). Open: FRTB
-  vega/curvature/DRC.
+  what-if trades, FRTB-SA delta aggregation with GIRR parameters (done 2026-10-11); FRTB-SA GIRR vega and
+  curvature, correlation scenarios and non-securitisation DRC (done 2026-10-13, 0.10.0). Open: built-in vega/curvature
+  parameters for risk classes other than GIRR, securitisation DRC, residual risk add-on.
 - ✅ **Portfolio**: interior-point QP, cost-aware rebalancing, turnover / sector / factor-exposure
   constraints, Michaud resampled frontier (done 2026-10-12).
 - ✅ **Backtesting**: order-book replay with latency models and FIFO queue position, corporate actions
@@ -49,8 +50,9 @@ v0.2 is complete.
 - ✅ More venues: Alpaca, OANDA, Bybit, OKX (brokers and data); IDX via vendor plus exchange rules.
 - ✅ Economic calendar and fundamentals: FRED (series, indicators, release calendar), SEC EDGAR XBRL.
 
-v0.3 is complete (2026-10-12). Open: TWS order placement, Bybit/OKX conditional orders, live verification
-of the key-gated venues.
+v0.3 is complete (2026-10-12). TWS order placement (`TwsBroker`, server version 176) and Bybit/OKX conditional and
+TP/SL orders followed in 0.10.0 (2026-10-13), tested against fakes and the documented payloads. Open: live
+verification of the key-gated venues and of TWS orders against a paper account.
 
 ## v0.4 — Financial AI / AI Keuangan
 
@@ -63,7 +65,9 @@ of the key-gated venues.
 - ✅ Temporal fusion transformer / N-BEATS forecasters on GraviNum autodiff (quantiles, attention, variable
   selection; interpretable trend/seasonality stacks).
 
-v0.4 is complete (2026-10-12). Open: TFT static covariates and multi-series training, OCR for scanned PDFs.
+v0.4 is complete (2026-10-12). TFT static covariates and multi-series training, and OCR for scanned PDFs
+(`Gravicode.Finance.LLM.Ocr`, TrOCR from HF.Net 0.10) followed in 0.10.0 (2026-10-13). Open: TFT forecasts for
+series unseen in training; OCR skew correction, tables and two-column reading order.
 
 ## v0.5 — Acceleration / Akselerasi
 
@@ -75,8 +79,9 @@ v0.4 is complete (2026-10-12). Open: TFT static covariates and multi-series trai
   dendrogram and weights); runtime-dispatched SIMD (baseline / AVX2 / AVX-512F, bit-identical results).
 - ✅ Publish native binaries for linux-x64, osx-arm64 alongside win-x64 (since 0.1.0, built in CI; finance_gpu since 0.9.0).
 
-v0.5 is complete (2026-10-12). Open: run the HIP backend on an AMD GPU; execute the AVX-512 path on a CPU that has it
-(CI runners may); vectorised exp/log for batch Black-Scholes; persistent GPU buffers to cut per-call overhead.
+v0.5 is complete (2026-10-12). In 0.10.0 (2026-10-13): persistent (grow-only) GPU buffers in every engine,
+vectorised batch Black-Scholes from AVX2 up, and CI reports which SIMD level each runner executed. Open: run the HIP
+backend on an AMD GPU; execute the AVX-512 path on a CPU that has it.
 
 ## Always / Selalu
 

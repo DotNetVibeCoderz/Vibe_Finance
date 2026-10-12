@@ -98,18 +98,32 @@ tft.Fit(y, past, known);                                  // past[t, k], known[t
 TftForecast f = tft.Predict(y, past, knownIncludingFuture);
 double[] median = f.Median, lo = f.At(0.1), hi = f.At(0.9);
 // f.Attention[h, t]: what each future step attends to; f.EncoderImportance / f.DecoderImportance: variable selection weights
+
+// Several series with static covariates: one model, windows sampled across series, per-series target scaling.
+var multi = new TemporalFusionTransformer(lookback: 2, horizon: 6, knownCovariates: 2, options: new TftOptions { Steps = 400 },
+    knownNames: new[] { "sin", "cos" }, staticCovariates: 2, staticNames: new[] { "store_type", "region" });
+multi.Fit(new[] { new TftSeries(y0, Past: null, Known: known0, Static: new[] { 0.0, 1 }),
+                  new TftSeries(y1, Past: null, Known: known1, Static: new[] { 2.0, 0 }) });
+TftForecast g = multi.Predict(series: 1, y1Recent, known: known1IncludingFuture);   // un-scaled with series 1's mean/std
+// g.StaticVariables / g.StaticImportance: static variable selection weights for that series
 ```
 
 Both are written on GraviNum's reverse-mode autodiff and trained with Adam (gradient clipping, mini-batches).
 The TFT follows Lim et al. (2021): gated residual networks, variable selection networks, an LSTM
 encoder-decoder, interpretable multi-head attention (shared values, causal mask) and a pinball-loss quantile
-head. A finite-difference test checks its gradients through the whole model. Measured in the tests (4-core
-laptop, CPU):
+head. Static covariates get their own variable selection network and four context GRNs: c_s conditions the
+encoder/decoder selection weights, c_e the static-enrichment GRN after the LSTM, and c_c / c_h initialise the
+LSTM cell and hidden state. `Fit(IReadOnlyList<TftSeries>)` trains one model on several series (each target
+standardised by its own mean/std, covariates and statics by pooled statistics); `Predict(series, …)` forecasts a
+trained series. Without static covariates the model is unchanged (no context vectors, no enrichment layer), and
+the single-series `Fit`/`Predict` work as before. Finite-difference tests check the gradients through the whole
+model, including every static-path parameter. Measured in the tests (4-core laptop, CPU):
 
 | Model | Data | Result | Train time |
 |---|---|---|---|
 | N-BEATS (trend + season, 800 steps) | trend + 12-step season + noise | MAE below 0.6× last-value and below seasonal naive | ~1 s |
 | TFT (hidden 12, 250 steps, batch 16) | season + known promo (+3) + irrelevant covariate | MAE below 0.6× seasonal naive; 80% interval covers 60–97%; switching the promo on moves the forecast by 2–4 | ~25 s |
+| TFT multi-series + 2 statics (hidden 12, 400 steps, batch 16, lookback 2, horizon 6) | 8 series, y = (1+s)·(10 + sin(2πt/24 + πs/2)) + 0.3(1+s)·noise, s ∈ {0..3} static, plus an irrelevant static z ∈ {0,1}; after per-series scaling the series differ only in phase, which two lags cannot reveal | MAE 0.635 vs seasonal naive 0.846 and the same TFT without statics 1.274 (noise floor ≈ 0.60); static importance s 0.83, z 0.17 (other seeds: MAE 0.63–0.67, s weight 0.60–0.91) | ~20 s per model |
 
 ## Reinforcement learning
 

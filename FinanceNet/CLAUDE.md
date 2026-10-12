@@ -37,20 +37,24 @@ HF.Net, ~440 MB download). The Gallery's AI page also reads
 
 ## Layout
 
-- `src/Finance.*` — 18 libraries, each its own package `Gravicode.<ProjectName>` (set in `Directory.Build.props`
+- `src/Finance.*` — 19 libraries, each its own package `Gravicode.<ProjectName>` (set in `Directory.Build.props`
   for anything under `src/`). Dependencies flow Core → Math → (DataFrame → TimeSeries) → domain modules;
   Backtesting, Portfolio, Execution, LLM, NewsAnalytics deliberately do **not** reference each other — hosts
   wire them together (e.g. the LLM assistant's tools are delegates registered by the Gallery).
 - `tests/` — xunit.v3, one project per module group (Foundation, Analytics, Quant, Portfolio, Data, AI, Native).
-- `native/finance-native` — Rust cdylib, C ABI `fnat_*`, no external crates. `Finance.RustBridge` P/Invokes it
-  and falls back to `ManagedKernels` (identical algorithms and RNG streams) when the DLL is missing.
+- `native/finance-native` — Rust cdylib, C ABI `fnat_*`, no external crates: kernels, the whole indicator
+  catalogue (`src/ta`, parity-tested against `IndicatorCatalog`), HRP, SIMD dispatch (`src/simd.rs`).
+  `Finance.RustBridge` P/Invokes it and falls back to `ManagedKernels` (identical algorithms and RNG streams).
+- `native/finance-gpu` — Rust cdylib (wgpu 24) for Finance.GPU's Vulkan engine, C ABI `fgpu_*`.
+- `src/Finance.GPU` — engines behind `GpuContext`: ILGPU (CUDA/OpenCL/CPU), Vulkan (finance_gpu), Direct3D 12
+  (`GpuBackend.DirectML`; `Kernels/finance.hlsl` → precompiled DXIL) and HIP (`Kernels/finance.hip`, hiprtc).
 - `samples/Finance.Gallery` — Avalonia 12 app built in C# (only `App.axaml` is XAML). Pages in `Pages/`,
   registered in `Shell/PageRegistry.cs`; charts are hand-drawn controls in `Controls/`.
 - `notebooks/` — 15 `.dib` files restoring from `../artifacts/packages` (run `dotnet pack` first) or nuget.org.
 - `docs/en`, `docs/id` — parallel bilingual docs; screenshots in `docs/screenshots`.
 
 Central package versions live in `Directory.Packages.props`. Foundation packages come from nuget.org:
-Gravicode.Science.GraviNum/GraviFrame/GraviLearn 1.1.0, Gravicode.RLNet 0.1.0, Gravicode.HFNet.* 0.9.0 (source: `C:\experiment\VibeCoding\Vibe_ML\HF.Net` — fix HF.Net issues there).
+Gravicode.Science.GraviNum/GraviFrame/GraviLearn 1.1.0, Gravicode.RLNet 0.1.0, Gravicode.HFNet.* 0.10.0 (source: `C:\experiment\VibeCoding\Vibe_ML\HF.Net` — fix HF.Net issues there).
 
 ## Things that will bite you
 
@@ -70,7 +74,19 @@ Gravicode.Science.GraviNum/GraviFrame/GraviLearn 1.1.0, Gravicode.RLNet 0.1.0, G
 - **Reddit's unauthenticated JSON is usually blocked**; the Social Sentiment page falls back to labelled
   synthetic posts. Hosted FinBERT returns 402 without Hugging Face credits.
 - **ILGPU kernels need `InternalsVisibleTo ILGPURuntime`** (in `Finance.GPU.csproj`), or the CPU accelerator
-  cannot compile them. DirectML/Vulkan throw `NotSupportedException` by design.
+  cannot compile them.
+- **Editing `Kernels/finance.hlsl` requires `powershell -File src/Finance.GPU/Kernels/compile-dxil.ps1`** (DXC → DXIL);
+  a test fails while the embedded DXIL is stale. HLSL rules: `L` suffix on every double literal, no double
+  division/int conversion/64-bit ints (optional features), branch-free helpers. Don't go back to FXC (SM 5.1): its
+  double-precision code executed wrongly on Intel and WARP.
+- **Keep wgpu at 24** in `native/finance-gpu`: wgpu 30 crashes in `vkCreateDevice` on this laptop's Intel driver.
+  naga 24 cannot negate f64 constants — write `(0.0lf - x)`.
+- The GPU engines keep grow-only device buffers per context; calls are serialised by `GpuContext`.
+- **ImageSharp (3.1.12, open advisories fixed only in licence-keyed 4.x) is confined to `Finance.LLM.Ocr`**, which
+  decodes with a restricted decoder set and carries the documented `NuGetAuditSuppress` list (so does
+  Finance.AI.Tests). Never reference GraviTransformers.Vision from another package.
+- **SIMD levels must stay bit-identical** (element-wise loops only, no reassociated reductions); force a level with
+  `FINANCE_NATIVE_SIMD=scalar|avx2|avx512` or `RustAccelerator.SimdLevel`. This laptop has AVX2, not AVX-512.
 - **Rust Monte Carlo uses 64 fixed RNG streams** so native, managed and any thread count agree bit-for-bit —
   don't make the stream count depend on core count.
 - **Benchmarks: this is a 4-core 15 W laptop that throttles.** Alternate variants in one process and take the

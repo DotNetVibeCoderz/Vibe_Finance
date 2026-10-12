@@ -52,6 +52,7 @@
 | `Gravicode.Finance.ML` | Feature engineering, triple-barrier labelling, fractional differentiation, purged CV, linear/logistic/trees/forests/boosting, AR/ARIMA/Holt-Winters, Q-learning + **RLNet DQN/PPO** trading agents, factor models, Alphalens-style research, Kernel SHAP, PDP/ICE |
 | `Gravicode.Finance.LLM` | OpenAI, Azure OpenAI, Anthropic, Ollama, Hugging Face clients; streaming; tool calling; `FinancialAssistant` agent loop; FinGPT-style tasks; FinBERT |
 | `Gravicode.Finance.LLM.Local` | **Local FinBERT** run in-process through HF.Net — no hosted API or credits (separate so `Finance.LLM` stays dependency-free) |
+| `Gravicode.Finance.LLM.Ocr` | **OCR for scanned reports** — line detection + TrOCR (HF.Net) and a PDF loader for filings Q&A (separate: it carries ImageSharp) |
 | `Gravicode.Finance.NewsAnalytics` | RSS/Atom, finance sentiment lexicon, ticker/entity extraction, event classification, MinHash de-duplication, earnings-call analysis |
 | `Gravicode.Finance.Visualization` | Dependency-free SVG charts (candles, lines, frontier, heatmaps, histograms) and self-contained HTML tearsheets |
 | `Gravicode.Finance.GPU` | GPU Monte Carlo pricing, batch Black-Scholes, Monte Carlo VaR on CUDA / OpenCL / CPU (ILGPU), ROCm (HIP), Vulkan and Direct3D 12 |

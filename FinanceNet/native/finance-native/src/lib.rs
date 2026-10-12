@@ -7,6 +7,7 @@
 //!
 //! Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil.
 
+pub mod bs_simd;
 pub mod hrp;
 pub mod indicators;
 pub mod normal;
@@ -200,13 +201,20 @@ pub unsafe extern "C" fn fnat_black_scholes_batch(
             return FNAT_ERR_NULL;
         }
         let calls = slice::from_raw_parts(is_call, n);
-        let mut outs = [output(price, n), output(delta, n), output(gamma, n), output(vega, n), output(theta, n), output(rho, n)];
-        for i in 0..n {
-            let g = pricing::black_scholes(s[i], k[i], t[i], r[i], q[i], v[i], calls[i] != 0);
-            let vals = [g.price, g.delta, g.gamma, g.vega, g.theta, g.rho];
-            for (o, val) in outs.iter_mut().zip(vals) {
-                if let Some(o) = o {
-                    o[i] = val;
+        let o = |p: *mut f64| -> &mut [f64] { output(p, n).unwrap_or(&mut []) };
+        let mut outs: [&mut [f64]; 6] = [o(price), o(delta), o(gamma), o(vega), o(theta), o(rho)];
+        if simd::level() >= simd::AVX2 {
+            // Vectorised kernel (bs_simd): branch-free exp/ln/erfc; AVX2 and AVX-512 give identical results.
+            let b = bs_simd::Batch { s, k, t, r, q, v, call: calls };
+            bs_simd::batch(&b, &mut outs);
+        } else {
+            // Baseline (SSE2/NEON): two lanes do not beat libm, so use the scalar reference.
+            for i in 0..n {
+                let g = pricing::black_scholes(s[i], k[i], t[i], r[i], q[i], v[i], calls[i] != 0);
+                for (o, val) in outs.iter_mut().zip([g.price, g.delta, g.gamma, g.vega, g.theta, g.rho]) {
+                    if !o.is_empty() {
+                        o[i] = val;
+                    }
                 }
             }
         }
@@ -378,6 +386,6 @@ mod tests {
             assert_eq!(fnat_sma(x.as_ptr(), 3, 2, o.as_mut_ptr()), FNAT_OK);
             assert_eq!(o[2], 2.5);
         }
-        assert_eq!(fnat_version(), 900);
+        assert_eq!(fnat_version(), 1000);
     }
 }

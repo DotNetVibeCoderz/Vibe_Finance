@@ -104,7 +104,7 @@ sends DefaultApplVerID=9 at logon.
 | `OandaBroker` | Bearer token | FX/CFDs; signed units, "EUR_USD" instruments, FOK market orders |
 | `BybitBroker` | HMAC-SHA256 (X-BAPI-*) | v5 unified API, spot by default; `TestnetUrl` |
 | `OkxBroker` | HMAC-SHA256 Base64 + passphrase | v5 API, cash mode; demo trading via `demo: true` |
-| `TwsClient` | TWS / IB Gateway socket | account monitoring: positions, account summary, server time, ids, cancels |
+| `TwsClient` / `TwsBroker` | TWS / IB Gateway socket | orders (MKT/LMT/STP/STP LMT), order status, executions, open orders; positions, account summary, server time |
 
 The REST brokers share `VenueBroker`: venues report cumulative quantity and average price, and `RefreshAsync`
 turns that into incremental fills, recorded exactly once however often an order is polled.
@@ -118,6 +118,75 @@ await using var tws = await TwsClient.ConnectAsync("127.0.0.1", 7497, clientId: 
 var positions = await tws.GetPositionsAsync();
 var netLiq = (await tws.GetAccountSummaryAsync()).Single(v => v.Tag == "NetLiquidation");
 ```
+
+### Stop and conditional orders
+
+The shared `Order` expresses trigger orders without new order types: `OrderType.Stop` (stop-market) and
+`OrderType.StopLimit` take their trigger from `StopPrice` (also exposed as `TriggerPrice`). Optional members:
+`TriggerBy` (`TriggerPriceType.Last` / `Mark` / `Index`; null = venue default), `TriggerDirection` (`Rising` /
+`Falling`; null = rising for buys, falling for sells, see `EffectiveTriggerDirection`), and attached
+`TakeProfitPrice` / `StopLossPrice`. `Order.StopMarket(...)` and `Order.StopLimit(...)` are shortcuts.
+
+```csharp
+var stop = new Order("BTCUSDT", Side.Sell, 0.5, OrderType.Stop, stopPrice: 60_000) { TriggerBy = TriggerPriceType.Mark };
+var entry = new Order("BTCUSDT", Side.Buy, 0.5, OrderType.Limit, 61_000) { TakeProfitPrice = 66_000, StopLossPrice = 58_000 };
+
+var bybit = new BybitBroker(key, secret, category: "linear");
+await bybit.SubmitAsync(stop);              // /v5/order/create: triggerPrice, triggerDirection 2, triggerBy MarkPrice
+await bybit.SubmitAsync(entry);             // takeProfit / stopLoss on the order
+
+var okx = new OkxBroker(key, secret, passphrase) { TradeMode = "cross" };
+var algo = await okx.SubmitAsync(Order.StopLimit("BTC-USDT-SWAP", Side.Sell, 1, 60_000, 59_900));   // order-algo, ordType=trigger
+await okx.SubmitTpSlAsync(new Order("BTC-USDT-SWAP", Side.Sell, 1) { TakeProfitPrice = 66_000, StopLossPrice = 58_000 });   // ordType=oco
+await okx.CancelAsync(algo.Id);             // algo orders cancel through cancel-algos
+```
+
+| Venue | Stop / stop-limit | Attached TP/SL | Cancel |
+|---|---|---|---|
+| Bybit (linear / inverse) | `POST /v5/order/create` + `triggerPrice`, `triggerDirection` (1 rising, 2 falling), `triggerBy` (LastPrice / MarkPrice / IndexPrice) | `takeProfit` / `stopLoss`, `tpTriggerBy` / `slTriggerBy` | `/v5/order/cancel` |
+| Bybit (spot) | same endpoint + `triggerPrice` and `orderFilter` = `StopOrder` (or `tpslOrder` via `SpotConditionalFilter`); last price only | `takeProfit` / `stopLoss` | `/v5/order/cancel` with the same `orderFilter` |
+| OKX | `POST /api/v5/trade/order-algo`, `ordType` = `trigger`, `triggerPx`, `orderPx` (-1 = market), `triggerPxType` (last / index / mark) | `attachAlgoOrds` (`tpTriggerPx`, `tpOrdPx`, `slTriggerPx`, `slOrdPx`); standalone `conditional` / `oco` via `SubmitTpSlAsync` | `POST /api/v5/trade/cancel-algos` (array of `{algoId, instId}`); a triggered algo is cancelled through its placed order |
+
+`RefreshAsync` keeps working: Bybit's `Untriggered` / `Triggered` stay open and `Deactivated` is final; for OKX it
+reads `GET /api/v5/trade/order-algo?algoId=…` and, once the algo is `effective`, follows `ordIdList` to the order
+it placed and records fills from that order.
+
+### Interactive Brokers TWS orders
+
+```csharp
+await using var tws = await TwsClient.ConnectAsync("127.0.0.1", 7497, clientId: 1);   // 7497 = paper TWS
+await using var ib = new TwsBroker(tws) { Account = "DU1234567", OutsideRth = false };
+ib.RegisterContract("EURUSD", TwsContract.Forex("EUR.USD"));                       // CASH on IDEALPRO
+ib.RegisterContract("ES", TwsContract.Future("ES", "202512", "CME", multiplier: "50"));
+
+Order o = await ib.SubmitAsync(new Order("AAPL", Side.Buy, 100, OrderType.Limit, 185.5) { TimeInForce = TimeInForce.Day });
+ib.OrderUpdated += e => Console.WriteLine($"{e.Kind} {e.Fill}");                // fills come from execDetails
+await ib.CancelAsync(o.Id);
+
+// Low level: any MKT / LMT / STP / STP LMT order, with your own ids
+long id = await tws.PlaceOrderAsync(TwsContract.Stock("MSFT"), TwsOrder.StopLimit("SELL", 50, stop: 400, limit: 399.5) with { Tif = "GTC", OutsideRth = true });
+IReadOnlyList<TwsOpenOrder> open = await tws.GetOpenOrdersAsync();
+tws.OrderStatus += s => Console.WriteLine($"{s.OrderId} {s.Status} {s.Filled}/{s.Remaining}");
+tws.Execution += x => Console.WriteLine($"{x.ExecId} {x.Side} {x.Shares} @ {x.Price}");
+```
+
+- **Messages.** Outgoing: placeOrder (3), cancelOrder (4), reqOpenOrders (5). Incoming: orderStatus (3),
+  error (4), openOrder (5, leading fields only: contract, action, quantity, type, prices, TIF, account, ids,
+  outsideRth), nextValidId (9), execDetails (11), openOrderEnd (53), commissionReport (59).
+- **Server version.** The client announces `v100..176`; the placeOrder field order (`TwsPlaceOrder.Fields`)
+  follows the TWS API's `EClient.placeOrder` with **176 as the reference target**. Fields added after 100 are
+  guarded by the version that introduced them (fractional quantity 101, conditions/adjusted-order block 102,
+  modelCode 103, extOperator 105, soft-dollar tier 106, cashQty 111, MiFID II 138/139,
+  dontUseAutoPriceForHedge 141, no VERSION field from 145, 148, 151, 158, 160, 162, 166, manualOrderTime 169);
+  faProfile is still sent (it disappears at 177, beyond the range). cancelOrder adds manualOrderCancelTime from
+  169. Incoming orderStatus / execDetails / openOrder drop their version field from 131 / 136 / 145.
+- **Mapping.** Market → MKT, limit → LMT, stop → STP (`auxPrice` = stop), stop-limit → STP LMT; DAY / GTC / IOC
+  (FOK is rejected); `TriggerBy = Last` → triggerMethod 2. orderStatus PreSubmitted / Submitted → Accepted,
+  Cancelled / ApiCancelled → Cancelled, Inactive → Rejected (Cancelled after a partial fill); error 202 → Cancelled,
+  other order errors before acknowledgement → Rejected (warnings 399, 404, 161, 10147, 10148 are ignored).
+  Each execDetails becomes one `Fill` (corrections with the same execId root are not double-counted);
+  commissionReport amounts are summed in `ReportedCommission(orderId)`, while `Fill.Commission` uses the
+  `Commission` model.
 
 ## Algorithms, routing, TCA
 
@@ -146,15 +215,24 @@ double impact = TransactionCostAnalysis.SquareRootImpact(quantity: 50_000, avera
 
 ## Notes and limitations
 
-- `TwsClient` does not place orders: `placeOrder` has a long, version-dependent field list that could not be
-  verified against a live TWS here. Place IB orders through `InteractiveBrokersBroker` (Client Portal Web API).
+- **TWS order placement and the Bybit/OKX conditional orders are tested against fakes and documented
+  payloads, not live.** The TWS tests run a fake TWS on a loopback socket that asserts the exact placeOrder field
+  sequence (written out from `EClient.placeOrder` for server versions 176 and 130) and replies with
+  orderStatus / openOrder / execDetails / commissionReport / error frames; no real TWS or IB Gateway was used,
+  so field-level drift in a TWS build is possible. The Bybit/OKX tests check request bodies against the
+  documented v5 parameter names and recompute each signature over the exact body; no exchange was called.
+- `TwsBroker` supports stock (STK), forex (CASH) and future (FUT) contracts with MKT / LMT / STP / STP LMT only;
+  combos, options, algos, trailing and conditions are not encoded. Attached TP/SL is not mapped for TWS (build a
+  bracket with `TwsOrder.ParentId` / `Transmit` on `TwsClient`). openOrder is only read up to `outsideRth`; order
+  state comes from orderStatus.
+- Bybit spot conditional orders trigger on the last price only (`TriggerBy` Mark/Index is rejected). Bybit
+  position-level TP/SL (`/v5/position/trading-stop`) and OKX trailing / iceberg / TWAP algos are not covered.
 - Live status of the v0.3 venues: none was traded live. Alpaca, OANDA, Bybit and OKX need accounts, and Bybit
   and OKX are also unreachable from the development network (TLS reset, as with Binance's main domain). All
-  four are tested against payloads in their documented formats; stop orders on Bybit/OKX (algo/conditional
-  endpoints) are not covered.
+  four are tested against payloads in their documented formats.
 
 - The Interactive Brokers adapter targets the **Client Portal Web API** (REST via the IB gateway);
-  it is tested against recorded payloads, not a running gateway. The TWS socket API is on the roadmap.
+  it is tested against recorded payloads, not a running gateway. For the TWS socket API use `TwsBroker`.
 - FIX sessions keep sequence numbers in memory — there is no persistent message store yet, so a
   restart cannot replay a gap.
 - Once `PaperBroker` has received an order book for a symbol it matches that symbol against the

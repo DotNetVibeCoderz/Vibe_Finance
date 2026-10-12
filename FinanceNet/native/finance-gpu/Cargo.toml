@@ -1,6 +1,6 @@
 [package]
 name = "finance-gpu"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 description = "Vulkan and Direct3D 12 compute kernels for Finance.Net (wgpu, C ABI). Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil."
 license = "MIT"

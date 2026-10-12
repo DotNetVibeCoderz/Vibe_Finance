@@ -94,11 +94,22 @@ Bilangan normal berkorelasi dibuat melalui faktor Cholesky dari matriks kovarian
 - Panggilan pertama pada sebuah context mengompilasi kernel (JIT); lakukan pemanasan sebelum mengukur
   waktu.
 - Belum ada VaR historis di GPU (untuk ukuran umum, pengurutan lebih murah di CPU atau Rust).
-- Terukur di Intel UHD 620 yang sama (warm, terbaik dari 2): MC Eropa 4 juta jalur — OpenCL 19 ms, Direct3D 12
-  28 ms, Vulkan 31 ms, WARP 147 ms, CPU ILGPU 150 ms; Black-Scholes batch 1 juta — OpenCL 79 ms, Direct3D 12 110 ms,
-  Vulkan 168 ms; VaR 1 juta skenario — OpenCL 141 ms, Vulkan 157 ms, Direct3D 12 180 ms. `exp`/`log` polinomial dan
-  pembuatan buffer per panggilan membuat Vulkan/Direct3D 12 lebih lambat dari OpenCL di GPU ini; keduanya berguna
-  ketika OpenCL tidak ada (banyak perangkat Windows-on-ARM, cloud, dan AMD konsumen).
+- Setiap engine menyimpan buffer perangkat yang hanya bertambah besar per context (0.10), sehingga panggilan berulang
+  tidak mengalokasikan apa pun setelah ukurannya pernah terlihat; host Vulkan juga mengirim array sebagai tampilan
+  byte tanpa salinan.
+- Terukur di Intel UHD 620 yang sama (0.10, warm, terbaik dari 2):
+
+  | Engine | MC Eropa 4 juta jalur | BS batch 1 juta | BS batch 1 ribu (per panggilan) | VaR MC 1 juta |
+  |---|---|---|---|---|
+  | OpenCL (ILGPU) | 18 ms | 59 ms | 1,02 ms | 133 ms |
+  | Direct3D 12 | 24 ms | 80 ms | 0,31 ms | 162 ms |
+  | Vulkan | 27 ms | 83 ms | 0,29 ms | 161 ms |
+  | WARP (software) | 180 ms | 199 ms | 0,39 ms | 358 ms |
+  | CPU ILGPU | 190 ms | 308 ms | 0,68 ms | 508 ms |
+
+  OpenCL tercepat untuk batch besar di GPU ini (`exp`/`log` native dibanding versi polinomial yang dibutuhkan engine
+  lain); Vulkan dan Direct3D 12 punya overhead per panggilan terendah dan berguna ketika OpenCL tidak ada
+  (Windows-on-ARM, banyak cloud dan AMD konsumen). Di 0.9, sebelum buffer dipakai ulang, Vulkan butuh 168 ms untuk 1 juta opsi.
 - wgpu 24 dipakai dengan sengaja: wgpu 30 crash di dalam `vkCreateDevice` pada driver Vulkan Intel (2022).
 - Shader Direct3D 12 dikompilasi sebelumnya: setelah mengubah `Kernels/finance.hlsl`, jalankan
   `Kernels/compile-dxil.ps1` (sebuah tes gagal selama DXIL yang tertanam basi). Bytecode shader model 5.1 dari FXC

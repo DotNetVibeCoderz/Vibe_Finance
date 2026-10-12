@@ -33,7 +33,7 @@ FastIndicators / FastRisk / FastPricing      (API C# publik, span masuk dan kelu
 ```csharp
 using Finance.RustBridge;
 
-Console.WriteLine(RustAccelerator.Describe());       // mis. "Rust accelerator 0.9.0 (path, SIMD avx2)" atau "... unavailable - managed kernels in use"
+Console.WriteLine(RustAccelerator.Describe());       // mis. "Rust accelerator 0.10.0 (path, SIMD avx2)" atau "... unavailable - managed kernels in use"
 bool native = RustAccelerator.IsAvailable;           // berhasil dimuat dan tidak dimatikan paksa
 string? version = RustAccelerator.NativeVersion;
 string? why = RustAccelerator.LoadError;
@@ -103,6 +103,11 @@ RustAccelerator.SimdLevel = NativeSimdLevel.Scalar;             // atau env FINA
 - Terukur di i7-8650U 4 core (AVX2, warm, terbaik dari 3): seluruh katalog pada 20.000 bar 620 ms managed vs 492 ms
   native (1,3×; entri terberat — Hurst, profil volume/TPO, transformasi Hilbert — setara, .NET sudah cepat di sana);
   HRP 400 aset 40,7 → 15,5 ms (2,6×); kovarians 2000 × 400 154 ms managed, 81 ms native baseline, 60 ms native AVX2.
+- **Black-Scholes batch tervektorisasi (0.10).** Mulai AVX2, `FastPricing.BlackScholesBatch` menjalankan kernel tanpa
+  percabangan (`exp`/`ln`/`erfc` sendiri, put lewat tanda ±1 yang eksak) yang divektorisasi compiler; AVX2 dan AVX-512
+  identik bit demi bit dan berbeda dari jalur libm beberapa ulp (diperiksa hingga 1e-13). Di level baseline, dua lane
+  tidak mengalahkan libm, jadi referensi skalar yang dijalankan. Terukur, 1 juta opsi: managed 105 ms, native libm
+  104 ms, native AVX2 90 ms — peningkatan kecil, karena Black-Scholes didominasi `exp`/`erfc` yang juga cepat di .NET.
 
 ## Build
 

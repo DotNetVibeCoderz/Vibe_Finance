@@ -194,6 +194,49 @@ var xccy = new CrossCurrencySwap(
 double basis = xccy.ParForeignSpread(spotFx: 1.08);                 // basis lintas mata uang tersirat
 ```
 
+### Konveksitas YoY
+
+```csharp
+var conv = new YoYConvexityModel(InflationVol: 0.012, NominalVol: 0.25, InflationNominalCorrelation: 0.4, InflationCorrelation: 0.9);
+double beAdj = yoy.ParRate(discount, cpi, conv);
+double ratio = yoy.ExpectedRatio(i: 5, discount, cpi, conv);       // E[I(t5)/I(t4)] di bawah ukuran forward-t5
+```
+
+`YoYConvexityModel` adalah model pasar CPI-forward lognormal dari Mercurio (2005) (Brigo-Mercurio, edisi ke-2,
+§16.3): setiap CPI forward Iⱼ lognormal dengan vol σ_I di bawah ukuran forward-Tⱼ miliknya, forward nominal Fᵢ
+lognormal dengan vol σ_N, dan
+
+E^{Tᵢ}[I(Tᵢ)/I(Tᵢ₋₁)] = Iᵢ(0)/Iᵢ₋₁(0) · exp(σ_I·Tᵢ₋₁·[ρ_{I,N}·σ_N·τFᵢ/(1+τFᵢ) − ρ_{I,I}·σ_I + σ_I]),
+
+dengan ρ_{I,N} korelasi CPI/suku bunga nominal dan ρ_{I,I} korelasi CPI forward yang berurutan (forward nominal
+dibekukan pada nilai hari ini di dalam drift). Forward nominal diambil dari kurva diskonto. Vol nol memberi harga
+tanpa penyesuaian secara persis; periode pertama tidak pernah disesuaikan. Hasil pengukuran pada kurva CPI di atas
+(level basis saling meniadakan dalam rasio) dengan diskonto `new YieldCurve({1,2,5,10}, {4.0%, 3.9%, 3.7%, 3.8%})`: par rate YoY tahunan 10Y bergeser
+dari 241.697bp menjadi 244.245bp (+2.55bp) dengan parameter di atas, dan payer tetap 2.5% bernotional 1jt dari
+−6,786.89 menjadi −4,704.35.
+
+### Swap lintas mata uang dengan reset mark-to-market
+
+```csharp
+var mtm = new MtmCrossCurrencySwap(
+    Domestic: new CrossCurrencyLeg(0, usdOis, usdSofr, Rate: 0),          // leg yang di-reset: notional ditentukan oleh reset
+    Foreign:  new CrossCurrencyLeg(10_000_000, eurDiscountInUsdCollateral, eurEstr, Rate: 0),
+    Maturity: 5);                                                         // ResetDomestic: true (default)
+double mtmBasis = mtm.ParForeignSpread(spotFx: 1.08);
+foreach (var p in mtm.ResetSchedule(1.08))                                // FX forward, notional, pertukaran di p.End
+    Console.WriteLine($"{p.Start:F2} {p.ForwardFx:F6} {p.ResettingNotional:N2} {p.NotionalExchange:N2}");
+```
+
+Notional leg yang di-reset untuk setiap periode adalah notional konstan leg lainnya yang dikonversi dengan FX
+forward pada awal periode, X(t) = S·P_for(t)/P_dom(t), dan selisih Nᵢ − Nᵢ₊₁ dipertukarkan pada setiap reset
+(Nₙ saat jatuh tempo). Pada kurva deterministik ini sama dengan rangkaian swap notional konstan satu periode,
+dan begitulah pengujian memeriksanya. Hasil pengukuran dengan kurva USD di atas sebagai `usdOis = usdSofr`, EUR
+`{1,5,10} → {2.5%, 2.6%, 2.8%}` didiskonto 20bp lebih rendah, spot 1.08, per 1jt EUR: reset 1.080000, 1.084600,
+1.089219, … 1.150043 (t = 4.75), pertukaran −4,599.77, −4,619.36, … dan 1,150,043.29 saat jatuh tempo. Dengan basis
+nol pada kurva yang konsisten NPV-nya −3.1e-10. Leg reset berupa par floater (forecast USD = diskonto) memberi basis
+yang persis sama dengan notional konstan (−20.1253bp); dengan forecast USD 10bp di atas kurva diskontonya, basis MtM
+−10.0639bp dibanding −10.3992bp untuk notional konstan.
+
 ## Kredit: CDS gaya ISDA (v0.2)
 
 ```csharp
@@ -206,6 +249,46 @@ double cs01    = cds.Cs01(discount, 0.0300);
 Leg proteksi dan accrual-on-default diintegrasikan dalam bentuk tertutup pada setiap potongan dengan hazard
 dan forward konstan, seperti pada ISDA CDS Standard Model; kupon standar dan konversi upfront ↔ quoted spread
 melalui kurva hazard datar.
+
+### CDS bertanggal dari tanggal transaksi dan tenor (jadwal IMM)
+
+```csharp
+var cds5y = IsdaCds.Standard(10_000_000, tradeDate: new DateOnly(2026, 10, 12), Tenor.Parse("5Y"),
+    coupon: IsdaCds.InvestmentGradeCoupon, recovery: 0.4, calendar: BusinessCalendar.WeekendsOnly);
+CdsSchedule s = cds5y.Schedule!;          // jatuh tempo, step-in, settlement tunai, periode accrual
+double points = cds5y.UpfrontFromQuotedSpread(discount, 0.0300);     // upfront clean pada settlement tunai
+var hz = HazardCurve.Flat(cds5y.FlatHazardFromQuotedSpread(discount, 0.0300));
+double cash = cds5y.CashSettlement(discount, hz);                     // N·(points − accrued)
+DateOnly m = CdsDates.StandardMaturity(new DateOnly(2016, 3, 21), Tenor.Parse("5Y"));   // 2021-06-20
+```
+
+Konvensi (ISDA CDS Standard Model, pasca-2009):
+
+- **Tanggal roll** adalah tanggal 20 Mar/Jun/Sep/Des (`CdsDates.NextImmDate` / `PreviousImmDate`).
+- **Jatuh tempo** (`CdsDates.StandardMaturity`, aturan `cdsMaturity` QuantLib): berjangkar pada tanggal IMM
+  terakhir pada atau sebelum tanggal transaksi, lalu ditambah tenor + 3M. Dengan `CdsRollConvention.SemiAnnual2015`
+  (default, sejak 20 Des 2015) jangkar Juni/Desember mundur tiga bulan, sehingga jatuh tempo hanya bergulir pada
+  20 Mar dan 20 Sep: transaksi 20 Mar s.d. 19 Sep jatuh tempo 20 Jun, 20 Sep s.d. 19 Mar jatuh tempo 20 Des.
+  `Quarterly` adalah aturan pra-2015.
+- **Step-in** T+1 (hari kalender), **settlement tunai** T+3 hari kerja.
+- **Awal accrual**: tanggal IMM tersesuaikan terakhir pada atau sebelum step-in (kupon pertama penuh; accrued,
+  dari awal accrual sampai T inklusif, dikembalikan saat settlement). Jika tanggal IMM di akhir pekan tergeser
+  melewati step-in, tanggal IMM sebelumnya yang dipakai.
+- **Tanggal kupon** disesuaikan Following; accrual Act/360; periode terakhir ber-accrual sampai jatuh tempo
+  inklusif (akhir = jatuh tempo tanpa penyesuaian + 1 hari) dan dibayar pada jatuh tempo tersesuaikan.
+- Proteksi berlaku dari tanggal transaksi sampai jatuh tempo inklusif; waktu model Act/365F dari tanggal
+  transaksi; survival untuk kupon dan accrual-on-default diamati satu hari sebelum setiap tanggal accrual, seperti
+  pada kode ISDA.
+- `Upfront` adalah harga clean pada settlement tunai, (proteksi − c·RPV01)/P(t_cs) + c·accrued; `ParSpread`
+  membagi dengan RPV01 clean, sehingga kontrak yang dikuotasi sama dengan kuponnya memiliki points nol dan
+  di-settle −N·c·accrued.
+
+Hasil pengukuran: transaksi Senin 12 Okt 2026, 5Y jatuh tempo 20 Des 2031; accrual mulai Senin 21 Sep 2026
+(20 Sep hari Minggu), accrued 22 hari, settlement tunai 15 Okt 2026, 21 periode (pertama 21 Sep → 21 Des 2026,
+91 hari; terakhir 22 Sep → 21 Des 2031, 90 hari, dibayar Senin 22 Des 2031). Pada kurva log-linear
+`{1,2,5,10} → {4.0%, 3.9%, 3.7%, 3.8%}` dengan kuotasi 300bp dan kupon 100bp, 10jt: points upfront 8.4057%, accrued
+6,111.11, settlement tunai 834,462.42, CS01 3,861.88. Bentuk fraksi tahun `new IsdaCds(10_000_000, 5)` memberi
+8.1563%, karena kontrak bertanggal berjalan 5.19 tahun.
 
 ## Produk terstruktur
 
@@ -234,11 +317,13 @@ yang membuat produk bernilai par.
 - Bootstrap kurva cubic-zero melakukan iterasi atas semua pilar, karena spline bersifat non-lokal:
   menambah pilar menggeser segmen sebelumnya.
 - `CreditDefaultSwap` adalah model hazard rate biasa pada grid mingguan. `IsdaCds` mengikuti matematika ISDA
-  Standard Model (integral eksak, forward datar antar node kurva, kupon standar, upfront dan CS01) tetapi
-  memakai fraksi tahun alih-alih tanggal IMM yang disesuaikan hari kerja, tanpa step-in T+1 atau jeda
-  settlement tunai.
-- Swap inflasi year-on-year memakai rasio indeks forward tanpa penyesuaian konveksitas; kurva inflasi tidak
-  memodelkan musiman atau lag indeksasi. Swap lintas mata uang memakai notional konstan (tanpa reset MtM).
+  Standard Model (integral eksak, forward datar antar node kurva, kupon standar, upfront dan CS01); bentuk
+  posisionalnya memakai fraksi tahun, `IsdaCds.Standard` memakai jadwal IMM bertanggal dengan step-in T+1 dan
+  settlement T+3. Hari libur mengikuti kalender yang diberikan (default hanya akhir pekan); varian "Markit fix"
+  2009 untuk accrual-on-default tidak disediakan.
+- Konveksitas year-on-year bersifat opsional (`YoYConvexityModel`, vol dan korelasi datar, forward nominal
+  dibekukan di dalam drift); kurva inflasi tidak memodelkan musiman atau lag indeksasi. Reset swap lintas mata
+  uang MtM memakai FX forward deterministik (tanpa konveksitas korelasi FX/suku bunga).
 - Harga Bermudan LSMC sedikit bias ke bawah (exercise sub-optimal dari aturan hasil regresi), seperti
   estimator Longstaff-Schwartz pada umumnya.
 - Pengujian membandingkan dengan nilai acuan Hull, Haug, dan Fang-Oosterlee, put-call parity, beda

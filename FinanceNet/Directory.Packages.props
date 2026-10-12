@@ -9,9 +9,10 @@
     <PackageVersion Include="Gravicode.Science.GraviNum" Version="1.1.0" />
     <PackageVersion Include="Gravicode.Science.GraviFrame" Version="1.1.0" />
     <PackageVersion Include="Gravicode.Science.GraviLearn" Version="1.1.0" />
-    <PackageVersion Include="Gravicode.HFNet.GraviTokenizers" Version="0.9.0" />
-    <PackageVersion Include="Gravicode.HFNet.GraviTransformers" Version="0.9.0" />
-    <PackageVersion Include="Gravicode.HFNet.GraviHub" Version="0.9.0" />
+    <PackageVersion Include="Gravicode.HFNet.GraviTokenizers" Version="0.10.0" />
+    <PackageVersion Include="Gravicode.HFNet.GraviTransformers" Version="0.10.0" />
+    <PackageVersion Include="Gravicode.HFNet.GraviHub" Version="0.10.0" />
+    <PackageVersion Include="Gravicode.HFNet.GraviTransformers.Vision" Version="0.10.0" />
     <PackageVersion Include="Gravicode.OfficeNet.PdfNet" Version="1.3.0" />
     <PackageVersion Include="Gravicode.Visual.Net.Core" Version="1.0.0" />
     <PackageVersion Include="Gravicode.Plotly.Net" Version="1.0.0" />

@@ -79,7 +79,7 @@ double quick = AdvancedVar.IncrementalMarginal(weights, trade, covariance, 0.99)
 
 `VarMethod.FilteredHistorical` and `VarMethod.ExtremeValue` also work through `ValueAtRisk.Estimate`.
 
-## FRTB standardised approach (delta)
+## FRTB standardised approach (delta, vega, curvature, DRC)
 
 ```csharp
 var sens = new[]
@@ -96,6 +96,77 @@ Console.WriteLine($"{girr.Charge:N0} ({girr.Binding} correlation scenario)");
 aggregation with the alternative Sᵦ specification, and the max over the low / medium / high
 correlation scenarios. Use it for other risk classes by supplying your own weighted sensitivities
 and correlations. `GirrDelta` supplies the GIRR delta parameters as written in MAR21 (January 2019).
+
+### Vega and curvature (GIRR)
+
+```csharp
+var vega = FrtbSa.GirrVega(new[]
+{
+    // vega × implied vol, by option maturity × underlying residual maturity
+    new GirrVegaSensitivity("USD", OptionMaturityYears: 1, UnderlyingMaturityYears: 5, Sensitivity: 200_000),
+    new GirrVegaSensitivity("USD", OptionMaturityYears: 3, UnderlyingMaturityYears: 10, Sensitivity: -150_000),
+    new GirrVegaSensitivity("EUR", OptionMaturityYears: 0.5, UnderlyingMaturityYears: 1, Sensitivity: 80_000),
+});
+var curvature = FrtbSa.GirrCurvature(new[]
+{
+    // V(x + 1.7%) − V(x), V(x − 1.7%) − V(x), and the summed delta to the curve
+    new GirrCurvatureSensitivity("USD", UpChange: -30_000, DownChange: 50_000, Delta: -1_000_000),
+    new GirrCurvatureSensitivity("EUR", UpChange: 10_000, DownChange: -2_000, Delta: 400_000),
+});
+var sbm = FrtbSa.SensitivitiesBasedCharge(vega.ByScenario, curvature.ByScenario);
+```
+
+- **Vega** (MAR21.25, MAR21.92-95): RW = min(55%·√(LH/10), 100%); GIRR has LH = 60, so 0.55·√6 = 1.347
+  is capped to 100% (`VegaRiskWeight(FrtbVegaClass.EquityLargeCap)` = 0.55·√2 = 77.78%). Within a
+  currency ρ = min(e^(−1%·|ΔT|/min T) of the option maturities × the same factor of the underlying
+  maturities, 1); γ = 50%; aggregated by the delta engine. Above, the two USD vertices have
+  ρ = e^(−0.02)·e^(−0.01) = 0.9704 and K_USD = 65,370.24 (medium). The charge is 121,133.27 (medium),
+  117,898.26 (high), **124,284.09 (low, binding)**.
+- **Curvature** (MAR21.5, MAR21.98-101): CVR⁺ = −(ΔV⁺ − RW·s), CVR⁻ = −(ΔV⁻ + RW·s), with RW = 1.7%
+  (a parallel shift of all curves of a currency, one risk factor per currency). USD: RW·s = −17,000,
+  CVR⁺ = 13,000, CVR⁻ = −33,000 → up selected, K = 13,000. EUR: CVR⁺ = −3,200, CVR⁻ = −4,800, both
+  negative → K = 0 and the tie goes to the larger ΣCVR (up, S = −3,200). Across currencies
+  γ = 50%² = 25%: √(13,000² + 2·0.25·13,000·(−3,200)) = 12,173.74 (medium), 11,958.26 (high),
+  **12,385.48 (low, binding)**. Within a bucket ψ = 0 drops cross terms of two negative CVRs and
+  Kᵦ± = √max(0, …) floors at zero; across buckets ψ(Sᵦ, S꜀) does the same and, as for delta, a
+  negative inner sum caps Sᵦ to [−Kᵦ, Kᵦ].
+- **Total** (MAR21.7): `SensitivitiesBasedCharge` adds the components scenario by scenario before
+  taking the maximum: low 136,669.57, medium 133,307.01, high 129,856.52 → **136,669.57**.
+- Other risk classes: build buckets with `VegaRiskWeight(FrtbVegaClass…)` and
+  `VegaCorrelation(ρ_delta, Tₖ, Tₗ)` for `Aggregate`, and pass squared delta correlations to
+  `AggregateCurvature` with `CurvatureExposure` for each risk factor.
+
+### Default risk charge, non-securitisations (MAR22)
+
+```csharp
+var drc = FrtbDrc.Charge(new[]
+{
+    new DrcPosition("X", FrtbDrcBucket.Corporate, FrtbCreditQuality.A, FrtbSeniority.SeniorDebt, 1_000_000, 1_020_000, MaturityYears: 3),
+    new DrcPosition("X", FrtbDrcBucket.Corporate, FrtbCreditQuality.A, FrtbSeniority.Equity, -200_000, -200_000, MaturityYears: 0.25),
+    new DrcPosition("Y", FrtbDrcBucket.Corporate, FrtbCreditQuality.BB, FrtbSeniority.SeniorDebt, -500_000, -490_000, MaturityYears: 0.5),
+    new DrcPosition("Y", FrtbDrcBucket.Corporate, FrtbCreditQuality.BB, FrtbSeniority.CoveredBond, 300_000, 300_000, MaturityYears: 2),
+    new DrcPosition("Z", FrtbDrcBucket.Corporate, FrtbCreditQuality.BBB, FrtbSeniority.NonSeniorDebt, 100_000, 90_000, MaturityYears: 0.1),
+    new DrcPosition("Z", FrtbDrcBucket.Corporate, FrtbCreditQuality.BBB, FrtbSeniority.SeniorDebt, -50_000, -50_000, MaturityYears: 1),
+    new DrcPosition("S", FrtbDrcBucket.Sovereign, FrtbCreditQuality.AA, FrtbSeniority.SeniorDebt, 400_000, 400_000, MaturityYears: 5),
+});
+```
+
+Notional and market value are signed (short < 0). Gross JTD = LGD·notional + (MV − notional), floored at
+0 for longs and capped at 0 for shorts; LGD 100% equity / non-senior, 75% senior, 25% covered bonds.
+Each JTD is scaled by max(min(M, 1), 0.25). Per obligor a short offsets longs of the same or higher
+seniority. Per bucket HBR = Σ long / (Σ long + Σ |short|) and DRCᵦ = max(Σ RW·long − HBR·Σ RW·|short|, 0),
+RW: AAA 0.5%, AA 2%, A 3%, BBB 6%, BB 15%, B 30%, CCC 50%, unrated 15%, defaulted 100%. Total = Σ DRCᵦ.
+
+| Obligor | Gross scaled JTDs | Net long | Net short |
+|---|---|---|---|
+| X (A) | 770,000; −200,000·0.25 = −50,000 (junior short offsets) | 720,000 | 0 |
+| Y (BB) | (−375,000 + 10,000)·0.5 = −182,500; 75,000 (covered, more senior) | 0 | −107,500 |
+| Z (BBB) | 90,000·0.25 = 22,500; −37,500 (senior short cannot offset a junior long) | 22,500 | −37,500 |
+| S (AA) | 300,000 | 300,000 | 0 |
+
+Corporates: HBR = 742,500 / 887,500 = 0.8366; Σ RW·long = 21,600 + 1,350 = 22,950; Σ RW·|short| =
+16,125 + 2,250 = 18,375; DRC = 22,950 − 0.8366·18,375 = 7,577.11. Sovereigns: 0.02·300,000 = 6,000.
+`drc.Charge` = **13,577.11**.
 
 ## Stress testing
 
@@ -167,10 +238,12 @@ var (portVol, contrib, pct) = RiskAttribution.VolatilityContributions(weights, c
 
 ## Notes and limitations
 
-- FRTB: only the delta charge is implemented (GIRR parameters built in; other risk classes through
-  `Aggregate` with your parameters). Vega, curvature, the default-risk charge and the residual risk
-  add-on are not. Check the parameters against the text your supervisor applies before using the
-  numbers for regulatory capital.
+- FRTB: delta, vega and curvature have built-in parameters for GIRR only (other risk classes through
+  `Aggregate` / `AggregateCurvature` with your parameters; vega risk weights cover every class); GIRR
+  inflation and cross-currency-basis vega/curvature, the vertex mapping of sensitivities, the DRC for
+  securitisations and the correlation trading portfolio, and the residual risk add-on are not
+  implemented. The curvature risk weight is an input (default 1.7%). Check the parameters against the
+  text your supervisor applies before using the numbers for regulatory capital.
 - EVT needs enough exceedances: `FitTail` refuses fewer than 10 losses above the threshold, and
   `ExtremeValue` requires the confidence to lie beyond the threshold quantile.
 

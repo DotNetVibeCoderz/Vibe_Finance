@@ -192,6 +192,47 @@ var xccy = new CrossCurrencySwap(
 double basis = xccy.ParForeignSpread(spotFx: 1.08);                 // implied cross-currency basis
 ```
 
+### YoY convexity
+
+```csharp
+var conv = new YoYConvexityModel(InflationVol: 0.012, NominalVol: 0.25, InflationNominalCorrelation: 0.4, InflationCorrelation: 0.9);
+double beAdj = yoy.ParRate(discount, cpi, conv);
+double ratio = yoy.ExpectedRatio(i: 5, discount, cpi, conv);       // E[I(t5)/I(t4)] under the t5-forward measure
+```
+
+`YoYConvexityModel` is the lognormal forward-CPI market model of Mercurio (2005) (Brigo-Mercurio, 2nd ed.,
+§16.3): each forward CPI Iⱼ is lognormal with vol σ_I under its own Tⱼ-forward measure, the nominal forward Fᵢ
+is lognormal with vol σ_N, and
+
+E^{Tᵢ}[I(Tᵢ)/I(Tᵢ₋₁)] = Iᵢ(0)/Iᵢ₋₁(0) · exp(σ_I·Tᵢ₋₁·[ρ_{I,N}·σ_N·τFᵢ/(1+τFᵢ) − ρ_{I,I}·σ_I + σ_I]),
+
+with ρ_{I,N} the CPI/nominal-rate correlation and ρ_{I,I} the correlation of consecutive forward CPIs (the nominal
+forward is frozen at today's value in the drift). Nominal forwards come from the discount curve. Zero vols give
+exactly the unadjusted price; the first period is never adjusted. Measured on the CPI curve above (the base level cancels in the ratios) with
+`new YieldCurve({1,2,5,10}, {4.0%, 3.9%, 3.7%, 3.8%})` as discount: the 10Y annual YoY par rate moves from
+241.697bp to 244.245bp (+2.55bp) with the parameters shown, and a 1mm 2.5% fixed payer from −6,786.89 to −4,704.35.
+
+### Mark-to-market resetting cross-currency swaps
+
+```csharp
+var mtm = new MtmCrossCurrencySwap(
+    Domestic: new CrossCurrencyLeg(0, usdOis, usdSofr, Rate: 0),          // resetting leg: notional set by the resets
+    Foreign:  new CrossCurrencyLeg(10_000_000, eurDiscountInUsdCollateral, eurEstr, Rate: 0),
+    Maturity: 5);                                                         // ResetDomestic: true (default)
+double mtmBasis = mtm.ParForeignSpread(spotFx: 1.08);
+foreach (var p in mtm.ResetSchedule(1.08))                                // forward FX, notional, exchange at p.End
+    Console.WriteLine($"{p.Start:F2} {p.ForwardFx:F6} {p.ResettingNotional:N2} {p.NotionalExchange:N2}");
+```
+
+The resetting leg's notional for each period is the constant notional of the other leg converted at the forward
+FX for the period start, X(t) = S·P_for(t)/P_dom(t), and the difference Nᵢ − Nᵢ₊₁ is exchanged at every reset
+(Nₙ at maturity). On deterministic curves this is a strip of one-period constant-notional swaps, which is how the
+tests check it. Measured with the USD curve above as `usdOis = usdSofr`, EUR `{1,5,10} → {2.5%, 2.6%, 2.8%}`
+discounted 20bp lower, spot 1.08, per 1mm EUR: resets 1.080000, 1.084600, 1.089219, … 1.150043 (t = 4.75), exchanges
+−4,599.77, −4,619.36, … and 1,150,043.29 at maturity. With zero basis on consistent curves the NPV is −3.1e-10. A
+par-floater resetting leg (USD forecast = discount) gives exactly the constant-notional basis (−20.1253bp); with
+the USD forecast 10bp over its discount curve the MtM basis is −10.0639bp against −10.3992bp constant-notional.
+
 ## Credit: ISDA-style CDS (v0.2)
 
 ```csharp
@@ -204,6 +245,43 @@ double cs01    = cds.Cs01(discount, 0.0300);
 The protection leg and accrual-on-default are integrated in closed form on every piece where hazard and
 forward are constant, as in the ISDA CDS Standard Model; standard coupons and upfront ↔ quoted-spread
 conversion go through a flat hazard curve.
+
+### Dated CDS from a trade date and tenor (IMM schedule)
+
+```csharp
+var cds5y = IsdaCds.Standard(10_000_000, tradeDate: new DateOnly(2026, 10, 12), Tenor.Parse("5Y"),
+    coupon: IsdaCds.InvestmentGradeCoupon, recovery: 0.4, calendar: BusinessCalendar.WeekendsOnly);
+CdsSchedule s = cds5y.Schedule!;          // maturity, step-in, cash settlement, accrual periods
+double points = cds5y.UpfrontFromQuotedSpread(discount, 0.0300);     // clean upfront at cash settlement
+var hz = HazardCurve.Flat(cds5y.FlatHazardFromQuotedSpread(discount, 0.0300));
+double cash = cds5y.CashSettlement(discount, hz);                     // N·(points − accrued)
+DateOnly m = CdsDates.StandardMaturity(new DateOnly(2016, 3, 21), Tenor.Parse("5Y"));   // 2021-06-20
+```
+
+Conventions (ISDA CDS Standard Model, post-2009):
+
+- **Roll dates** are the 20th of Mar/Jun/Sep/Dec (`CdsDates.NextImmDate` / `PreviousImmDate`).
+- **Maturity** (`CdsDates.StandardMaturity`, QuantLib's `cdsMaturity` rule): anchor on the last IMM date on or
+  before the trade date, then add tenor + 3M. With `CdsRollConvention.SemiAnnual2015` (default, since 20 Dec 2015)
+  a June/December anchor moves back three months, so maturities roll only on 20 Mar and 20 Sep: trades from
+  20 Mar to 19 Sep mature on 20 Jun, from 20 Sep to 19 Mar on 20 Dec. `Quarterly` is the pre-2015 rule.
+- **Step-in** T+1 (calendar), **cash settlement** T+3 business days.
+- **Accrual start**: the latest adjusted IMM date on or before step-in (full first coupon; the accrued, from
+  accrual start to T inclusive, is rebated at settlement). If a weekend IMM date adjusts past step-in the previous
+  IMM date is used.
+- **Coupon dates** adjusted Following; Act/360 accrual; the last period accrues to maturity inclusive (end =
+  unadjusted maturity + 1 day) and pays on the adjusted maturity.
+- Protection runs from the trade date to maturity inclusive; model times are Act/365F from the trade date;
+  survival for coupons and accrual-on-default is observed one day before each accrual date, as in the ISDA code.
+- `Upfront` is the clean price at cash settlement, (protection − c·RPV01)/P(t_cs) + c·accrued; `ParSpread` divides
+  by the clean RPV01, so a contract quoted at its coupon has zero points and settles −N·c·accrued.
+
+Measured: traded Mon 12 Oct 2026, the 5Y matures 20 Dec 2031; accrual starts Mon 21 Sep 2026 (20 Sep is a
+Sunday), 22 days accrued, cash settlement 15 Oct 2026, 21 periods (first 21 Sep → 21 Dec 2026, 91 days; last
+22 Sep → 21 Dec 2031, 90 days, paid Mon 22 Dec 2031). On the log-linear curve `{1,2,5,10} → {4.0%, 3.9%, 3.7%, 3.8%}`
+at a 300bp quote with a 100bp coupon, 10mm: points upfront 8.4057%, accrued 6,111.11, cash settlement
+834,462.42, CS01 3,861.88. The year-fraction `new IsdaCds(10_000_000, 5)` gives 8.1563%, since the dated contract
+runs 5.19 years.
 
 ## Structured products
 
@@ -233,10 +311,12 @@ the term that prices the note at par.
   pillar moves the earlier segments.
 - `CreditDefaultSwap` is a plain hazard-rate model on a weekly grid. `IsdaCds` follows the ISDA Standard
   Model's mathematics (exact integrals, flat forwards between curve nodes, standard coupons, upfront and
-  CS01) but uses year fractions instead of business-day-adjusted IMM dates, with no T+1 step-in or cash
-  settlement lag.
-- Year-on-year inflation swaps use forward index ratios without a convexity adjustment; inflation curves
-  have no seasonality or indexation lag. Cross-currency swaps have constant notionals (no MtM resets).
+  CS01); its positional form uses year fractions, `IsdaCds.Standard` uses the dated IMM schedule with T+1 step-in
+  and T+3 settlement. Holidays are those of the calendar passed in (weekends only by default); the 2009
+  accrual-on-default "Markit fix" variant is not offered.
+- Year-on-year convexity is optional (`YoYConvexityModel`, flat vols and correlations, nominal forward frozen
+  in the drift); inflation curves have no seasonality or indexation lag. MtM cross-currency resets use
+  deterministic forward FX (no FX/rate correlation convexity).
 - Bermudan LSMC prices are slightly low-biased (sub-optimal exercise from a regressed rule), as with any
   Longstaff-Schwartz estimator.
 - Tests check against Hull, Haug and Fang-Oosterlee reference values, put-call parity, finite

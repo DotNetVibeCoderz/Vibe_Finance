@@ -103,6 +103,7 @@ All packages target `net10.0`. NuGet IDs follow the pattern `Gravicode.<ProjectN
 | `Gravicode.Finance.ML` | Trees, forests, boosting, linear models, labelling, purged CV, forecasting, RL (incl. RLNet), factor research, SHAP |
 | `Gravicode.Finance.LLM` | OpenAI, Azure OpenAI, Anthropic, Ollama and Hugging Face clients; tool-calling assistant; FinBERT |
 | `Gravicode.Finance.LLM.Local` | FinBERT run locally through HF.Net (no API, no credits) |
+| `Gravicode.Finance.LLM.Ocr` | OCR of scanned report pages (TrOCR through HF.Net) for filings Q&A |
 | `Gravicode.Finance.NewsAnalytics` | RSS reader, finance lexicon sentiment, entity and event extraction, MinHash de-duplication, earnings calls |
 | `Gravicode.Finance.Visualization` | Dependency-free SVG charts and self-contained HTML tearsheets |
 | `Gravicode.Finance.GPU` | GPU Monte Carlo pricing, batch Black-Scholes, Monte Carlo VaR (ILGPU, HIP, Vulkan, Direct3D 12) |

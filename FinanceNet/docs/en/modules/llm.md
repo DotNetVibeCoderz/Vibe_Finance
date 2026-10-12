@@ -173,7 +173,35 @@ source. Verified live: Apple's latest 10-K from EDGAR answered through Azure Ope
 
 `LocalEmbeddingModel` (package `Gravicode.Finance.LLM.Local`) runs any sentence-transformers checkpoint
 through HF.Net with mean pooling and L2 normalisation; implement `IEmbeddingModel` to use another embedder.
-PDF reading uses Gravicode.OfficeNet.PdfNet; scanned (image-only) PDFs need OCR first.
+PDF reading uses Gravicode.OfficeNet.PdfNet; for scanned (image-only) PDFs see the OCR section below.
+
+## OCR for scanned reports (0.10)
+
+Package `Gravicode.Finance.LLM.Ocr`. Many annual reports (especially older IDX filings) are scanned images with no
+text layer. `OcrPdfReports` OCRs exactly those pages and keeps the text layer of the others:
+
+```csharp
+using Finance.LLM.Ocr;
+
+using var ocr = ScannedPageOcr.Load();                         // microsoft/trocr-base-printed, ~1.3 GB, downloaded once
+SourceDocument report = OcrPdfReports.Load(@"annual-report-2009.pdf", ocr);   // pages with < 20 text characters are OCR-ed
+await index.AddAsync(report);                                   // then FilingIndex / FilingsQa as usual
+
+IReadOnlyList<OcrLine> lines = ocr.ReadPage(File.ReadAllBytes("page.png"));   // one page image: Line, Text, Regions
+```
+
+`TextLineSegmenter` finds the lines with projection profiles (Otsu threshold, ink rows grouped into lines, a line
+split at gaps wider than twice its height, e.g. column gutters); each crop goes to TrOCR (HF.Net 0.10, whose output
+matches Python transformers exactly on the published checkpoints). Measured on the test page (three printed lines,
+150 dpi, 4-core laptop CPU): 15.5 s, about 5 s per line, all three lines read correctly; `trocr-small-printed`
+(`ScannedPageOcr.Load("microsoft/trocr-small-printed")`) is faster but misread "revenue" and "bersih" on the same page.
+
+Limitations: the printed checkpoints were fine-tuned on receipts and answer in UPPER CASE (BM25 retrieval is
+case-insensitive, so search is unaffected); clean, deskewed printed pages only — no skew correction, tables with
+ruling lines, handwriting or two-column reading order (columns are read row by row); page images must be PNG, JPEG,
+BMP, GIF or WebP (CCITT/JBIG2 scans are skipped). The package depends on SixLabors.ImageSharp 3.1.12, which has
+advisories fixed only in the licence-keyed 4.x; the reachable code paths are restricted (no TIFF, no metadata) and
+the suppression is documented in the project file. No other Finance.Net package depends on ImageSharp.
 
 ## Notes and limitations
 

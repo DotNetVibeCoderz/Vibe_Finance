@@ -172,7 +172,35 @@ EDGAR dijawab lewat Azure OpenAI, sepenuhnya grounded.
 
 `LocalEmbeddingModel` (paket `Gravicode.Finance.LLM.Local`) menjalankan checkpoint sentence-transformers apa pun
 lewat HF.Net dengan mean pooling dan normalisasi L2; implementasikan `IEmbeddingModel` untuk embedder lain.
-Pembacaan PDF memakai Gravicode.OfficeNet.PdfNet; PDF hasil scan (hanya gambar) perlu OCR terlebih dahulu.
+Pembacaan PDF memakai Gravicode.OfficeNet.PdfNet; untuk PDF hasil scan (hanya gambar) lihat bagian OCR di bawah.
+
+## OCR untuk laporan hasil scan (0.10)
+
+Paket `Gravicode.Finance.LLM.Ocr`. Banyak laporan tahunan (terutama laporan IDX lama) berupa gambar hasil scan tanpa
+lapisan teks. `OcrPdfReports` melakukan OCR tepat pada halaman-halaman itu dan memakai lapisan teks halaman lainnya:
+
+```csharp
+using Finance.LLM.Ocr;
+
+using var ocr = ScannedPageOcr.Load();                         // microsoft/trocr-base-printed, ~1,3 GB, diunduh sekali
+SourceDocument report = OcrPdfReports.Load(@"laporan-tahunan-2009.pdf", ocr);   // halaman dengan < 20 karakter teks di-OCR
+await index.AddAsync(report);                                   // lalu FilingIndex / FilingsQa seperti biasa
+
+IReadOnlyList<OcrLine> lines = ocr.ReadPage(File.ReadAllBytes("halaman.png"));   // satu gambar halaman: Line, Text, Regions
+```
+
+`TextLineSegmenter` menemukan baris dengan profil proyeksi (ambang Otsu, baris piksel bertinta dikelompokkan menjadi
+baris teks, satu baris dipisah pada celah lebih lebar dari dua kali tingginya, mis. pemisah kolom); setiap potongan
+dibaca TrOCR (HF.Net 0.10, yang keluarannya identik dengan transformers Python pada checkpoint publik). Terukur pada
+halaman uji (tiga baris cetak, 150 dpi, CPU laptop 4 core): 15,5 s, sekitar 5 s per baris, ketiga baris terbaca
+benar; `trocr-small-printed` lebih cepat tetapi salah membaca "revenue" dan "bersih" pada halaman yang sama.
+
+Batasan: checkpoint printed di-fine-tune pada struk belanja dan menjawab dalam HURUF BESAR (pencarian BM25 tidak
+peka huruf besar/kecil, jadi pencarian tidak terpengaruh); hanya halaman cetak yang bersih dan lurus — tanpa koreksi
+kemiringan, tabel bergaris, tulisan tangan, atau urutan baca dua kolom (kolom dibaca per baris); gambar halaman harus
+PNG, JPEG, BMP, GIF, atau WebP (scan CCITT/JBIG2 dilewati). Paket ini bergantung pada SixLabors.ImageSharp 3.1.12 yang
+punya advisory yang hanya diperbaiki di 4.x berlisensi; jalur kode yang terjangkau dibatasi (tanpa TIFF, tanpa
+metadata) dan penekanan audit didokumentasikan di file proyek. Tidak ada paket Finance.Net lain yang bergantung pada ImageSharp.
 
 ## Catatan dan batasan
 

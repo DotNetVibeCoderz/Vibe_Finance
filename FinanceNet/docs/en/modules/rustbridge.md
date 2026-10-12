@@ -32,7 +32,7 @@ FastIndicators / FastRisk / FastPricing      (public C# API, spans in and out)
 ```csharp
 using Finance.RustBridge;
 
-Console.WriteLine(RustAccelerator.Describe());       // e.g. "Rust accelerator 0.9.0 (path, SIMD avx2)" or "... unavailable - managed kernels in use"
+Console.WriteLine(RustAccelerator.Describe());       // e.g. "Rust accelerator 0.10.0 (path, SIMD avx2)" or "... unavailable - managed kernels in use"
 bool native = RustAccelerator.IsAvailable;           // loaded and not forced off
 string? version = RustAccelerator.NativeVersion;
 string? why = RustAccelerator.LoadError;
@@ -101,6 +101,11 @@ RustAccelerator.SimdLevel = NativeSimdLevel.Scalar;             // or env FINANC
   native (1.3×; the heaviest entries — Hurst, volume/TPO profiles, Hilbert transforms — run at parity, .NET is
   already fast there); HRP 400 assets 40.7 → 15.5 ms (2.6×); covariance 2000 × 400 154 ms managed, 81 ms native
   baseline, 60 ms native AVX2.
+- **Vectorised batch Black-Scholes (0.10).** From AVX2 up, `FastPricing.BlackScholesBatch` runs a branch-free kernel
+  (own `exp`/`ln`/`erfc`, puts through an exact ±1 sign) that the compiler vectorises; AVX2 and AVX-512 agree bit for
+  bit and differ from the libm path by a few ulps (checked to 1e-13). At the baseline level two lanes do not beat
+  libm, so the scalar reference runs. Measured, 1M options: managed 105 ms, native libm 104 ms, native AVX2 90 ms —
+  a modest gain, because Black-Scholes is dominated by `exp`/`erfc`, which .NET also evaluates quickly.
 
 ## Building
 

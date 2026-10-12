@@ -15,9 +15,9 @@
 #!csharp
 
 #i "nuget: ../artifacts/packages"
-#r "nuget: Gravicode.Finance.Core, 0.9.0"
-#r "nuget: Gravicode.Finance.Execution, 0.9.0"
-#r "nuget: Gravicode.Finance.Visualization, 0.9.0"
+#r "nuget: Gravicode.Finance.Core, 0.10.0"
+#r "nuget: Gravicode.Finance.Execution, 0.10.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.10.0"
 
 using Finance.Core;
 using Finance.Core.Market;

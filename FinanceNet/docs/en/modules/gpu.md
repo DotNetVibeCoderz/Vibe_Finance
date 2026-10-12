@@ -93,11 +93,21 @@ Correlated normals are produced through the Cholesky factor of the covariance ma
   [Benchmarks](../benchmarks.md). Small workloads are dominated by kernel launch and transfer cost.
 - The first call on a context compiles the kernels (JIT); warm up before timing.
 - There is no GPU historical VaR (sorting is cheaper on the CPU or in Rust for typical sizes).
-- Measured on the same Intel UHD 620 (warm, best of 2): European MC 4M paths — OpenCL 19 ms, Direct3D 12 28 ms,
-  Vulkan 31 ms, WARP 147 ms, ILGPU CPU 150 ms; batch Black-Scholes 1M — OpenCL 79 ms, Direct3D 12 110 ms, Vulkan
-  168 ms; VaR 1M scenarios — OpenCL 141 ms, Vulkan 157 ms, Direct3D 12 180 ms. The polynomial `exp`/`log` and
-  per-call buffer creation make Vulkan/Direct3D 12 slower than OpenCL on this GPU; they matter where OpenCL is
-  missing (many Windows-on-ARM, cloud and AMD consumer setups).
+- Every engine keeps grow-only device buffers per context (0.10), so repeated calls allocate nothing once the sizes
+  have been seen; the Vulkan host also passes arrays as zero-copy byte views.
+- Measured on the same Intel UHD 620 (0.10, warm, best of 2):
+
+  | Engine | MC European 4M paths | Batch BS 1M | Batch BS 1k (per call) | MC VaR 1M |
+  |---|---|---|---|---|
+  | OpenCL (ILGPU) | 18 ms | 59 ms | 1.02 ms | 133 ms |
+  | Direct3D 12 | 24 ms | 80 ms | 0.31 ms | 162 ms |
+  | Vulkan | 27 ms | 83 ms | 0.29 ms | 161 ms |
+  | WARP (software) | 180 ms | 199 ms | 0.39 ms | 358 ms |
+  | ILGPU CPU | 190 ms | 308 ms | 0.68 ms | 508 ms |
+
+  OpenCL is fastest for large batches on this GPU (native `exp`/`log` versus the polynomial versions the other
+  engines need); Vulkan and Direct3D 12 have the lowest per-call overhead and matter where OpenCL is missing
+  (Windows-on-ARM, many cloud and AMD consumer setups). In 0.9, before buffer reuse, Vulkan took 168 ms for 1M options.
 - wgpu 24 is used on purpose: wgpu 30 crashed inside `vkCreateDevice` on the (2022) Intel Vulkan driver.
 - The Direct3D 12 shaders are precompiled: after editing `Kernels/finance.hlsl` run `Kernels/compile-dxil.ps1`
   (a test fails while the embedded DXIL is stale). Shader model 5.1 bytecode from FXC was tried first and

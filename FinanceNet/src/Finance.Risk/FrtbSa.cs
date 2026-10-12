@@ -12,7 +12,7 @@ public enum FrtbCorrelationScenario { Low, Medium, High }
 /// <param name="Curve">Curve name; two curves of one currency correlate at 99.9% of the tenor correlation.</param>
 public sealed record GirrSensitivity(string Currency, double TenorYears, double Sensitivity, string Curve = "OIS");
 
-/// <summary>Result of an FRTB delta charge.</summary>
+/// <summary>Result of an FRTB delta or vega charge (both use the same aggregation, MAR21.4).</summary>
 /// <param name="Charge">The capital requirement: the largest of the three correlation scenarios.</param>
 /// <param name="Binding">The scenario that produced <paramref name="Charge"/>.</param>
 /// <param name="ByScenario">Charge under each scenario.</param>
@@ -21,7 +21,8 @@ public sealed record FrtbDeltaResult(double Charge, FrtbCorrelationScenario Bind
     IReadOnlyDictionary<FrtbCorrelationScenario, double> ByScenario, IReadOnlyDictionary<string, double> BucketCapital);
 
 /// <summary>
-/// FRTB standardised approach, sensitivities-based method: delta aggregation (Basel MAR21).
+/// FRTB standardised approach, sensitivities-based method: delta aggregation (Basel MAR21). Vega and curvature are in
+/// FrtbSaVegaCurvature.cs; the default risk charge is <see cref="FrtbDrc"/>.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,7 +39,7 @@ public sealed record FrtbDeltaResult(double Charge, FrtbCorrelationScenario Bind
 /// parameters against the text your supervisor applies before using the numbers for regulatory capital.
 /// </para>
 /// </remarks>
-public static class FrtbSa
+public static partial class FrtbSa
 {
     /// <summary>GIRR delta vertices in years.</summary>
     public static IReadOnlyList<double> GirrTenors { get; } = new[] { 0.25, 0.5, 1, 2, 3, 5, 10, 15, 20, 30 };

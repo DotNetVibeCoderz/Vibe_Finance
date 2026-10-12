@@ -59,6 +59,8 @@ pub fn name(l: i32) -> &'static str {
 }
 
 /// Generates `$name(args)` dispatching to baseline / AVX2 / AVX-512 copies of the `#[inline(always)]` body `$body`.
+#[macro_export]
+#[doc(hidden)]
 macro_rules! multiversion {
     ($vis:vis fn $name:ident($($arg:ident : $ty:ty),*) => $body:path) => {
         $vis fn $name($($arg: $ty),*) {
@@ -91,7 +93,7 @@ pub fn axpy_body(a: f64, x: &[f64], y: &mut [f64]) {
     }
 }
 
-multiversion!(pub fn axpy(a: f64, x: &[f64], y: &mut [f64]) => axpy_body);
+crate::multiversion!(pub fn axpy(a: f64, x: &[f64], y: &mut [f64]) => axpy_body);
 
 /// `out[i] = x[i] - m[i]`.
 #[inline(always)]
@@ -103,7 +105,7 @@ pub fn sub_body(x: &[f64], m: &[f64], out: &mut [f64]) {
     }
 }
 
-multiversion!(pub fn sub(x: &[f64], m: &[f64], out: &mut [f64]) => sub_body);
+crate::multiversion!(pub fn sub(x: &[f64], m: &[f64], out: &mut [f64]) => sub_body);
 
 #[cfg(test)]
 mod tests {
@@ -111,6 +113,8 @@ mod tests {
 
     #[test]
     fn every_supported_level_is_bit_identical() {
+        // CI greps this line to record which levels a runner actually executed.
+        println!("SIMD supported on this CPU: {}", name(supported()));
         let x: Vec<f64> = (0..1003).map(|i| (i as f64 * 0.37).sin()).collect();
         let mut reference = vec![0.5; 1003];
         set_level(SCALAR);
