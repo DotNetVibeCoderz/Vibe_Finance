@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="../Finance.Core/Finance.Core.csproj" />
     <ProjectReference Include="../Finance.Math/Finance.Math.csproj" />
+    <ProjectReference Include="../Finance.TimeSeries/Finance.TimeSeries.csproj" />
   </ItemGroup>
 
   <ItemGroup>

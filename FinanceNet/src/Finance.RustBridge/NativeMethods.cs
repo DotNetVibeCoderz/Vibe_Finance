@@ -11,6 +11,8 @@ internal static unsafe partial class NativeMethods
     public const int ErrNull = -1;
     public const int ErrArg = -2;
     public const int ErrPanic = -3;
+    public const int ErrUnknown = -4;
+    public const int ErrBuffer = -5;
 
     [LibraryImport(Library, EntryPoint = "fnat_version")]
     public static partial uint Version();
@@ -54,6 +56,13 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport(Library, EntryPoint = "fnat_simulate_gbm")]
     public static partial int SimulateGbm(double s0, double mu, double sigma, double dt, nuint steps, nuint paths, ulong seed, uint threads, double* output);
+
+    [LibraryImport(Library, EntryPoint = "fnat_indicator")]
+    public static partial int Indicator(byte* id, nuint idLen, double* open, double* high, double* low, double* close, double* volume, nuint n,
+        double* parameters, nuint parameterCount, double* output, nuint maxOutputs, byte* names, nuint namesCapacity);
+
+    [LibraryImport(Library, EntryPoint = "fnat_indicator_ids")]
+    public static partial int IndicatorIds(byte* buffer, nuint capacity);
 
     /// <summary>Turns a status code into an exception.</summary>
     public static void Check(int status, string function)

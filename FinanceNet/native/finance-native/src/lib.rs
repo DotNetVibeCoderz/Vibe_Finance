@@ -12,6 +12,7 @@ pub mod normal;
 pub mod pricing;
 pub mod risk;
 pub mod rng;
+pub mod ta;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::slice;
@@ -249,6 +250,64 @@ pub unsafe extern "C" fn fnat_simulate_gbm(
             }
             None => FNAT_ERR_NULL,
         }
+    })
+}
+
+pub const FNAT_ERR_UNKNOWN: i32 = -4;
+pub const FNAT_ERR_BUFFER: i32 = -5;
+
+/// Catalogue indicator `id` (UTF-8, case-insensitive) on bars of length `n`. `params` are the catalogue parameters
+/// in declaration order. Up to `max_out` series are written row-major into `out` (`max_out × n`) and their names,
+/// separated by '\n', into `names` (`names_cap` bytes, not terminated). Returns the number of series, or a negative
+/// status: `FNAT_ERR_UNKNOWN` for an id the native catalogue lacks, `FNAT_ERR_ARG` where the managed code would
+/// throw, `FNAT_ERR_BUFFER` when `out`/`names` are too small.
+#[no_mangle]
+pub unsafe extern "C" fn fnat_indicator(
+    id: *const u8, id_len: usize, open: *const f64, high: *const f64, low: *const f64, close: *const f64, volume: *const f64,
+    n: usize, params: *const f64, nparams: usize, out: *mut f64, max_out: usize, names: *mut u8, names_cap: usize,
+) -> i32 {
+    guard(|| {
+        if id.is_null() || names.is_null() || (nparams > 0 && params.is_null()) {
+            return FNAT_ERR_NULL;
+        }
+        let Ok(id) = std::str::from_utf8(slice::from_raw_parts(id, id_len)) else { return FNAT_ERR_ARG };
+        let (Some(o), Some(h), Some(l), Some(c), Some(v)) = (input(open, n), input(high, n), input(low, n), input(close, n), input(volume, n))
+        else {
+            return FNAT_ERR_NULL;
+        };
+        let ps: &[f64] = if nparams == 0 { &[] } else { slice::from_raw_parts(params, nparams) };
+        let bars = ta::Ohlcv { open: o, high: h, low: l, close: c, volume: v };
+        let series = match ta::compute(id, &bars, ps) {
+            None => return FNAT_ERR_UNKNOWN,
+            Some(Err(_)) => return FNAT_ERR_ARG,
+            Some(Ok(s)) => s,
+        };
+        let joined = series.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join("\n");
+        if series.len() > max_out || joined.len() > names_cap {
+            return FNAT_ERR_BUFFER;
+        }
+        let Some(dst) = output(out, max_out * n) else { return FNAT_ERR_NULL };
+        for (k, (_, values)) in series.iter().enumerate() {
+            if values.len() != n {
+                return FNAT_ERR_ARG;
+            }
+            dst[k * n..(k + 1) * n].copy_from_slice(values);
+        }
+        slice::from_raw_parts_mut(names, joined.len()).copy_from_slice(joined.as_bytes());
+        series.len() as i32
+    })
+}
+
+/// Writes the ids the native catalogue implements, separated by '\n', into `buf`; returns the byte length needed
+/// (call with `cap = 0` to size the buffer).
+#[no_mangle]
+pub unsafe extern "C" fn fnat_indicator_ids(buf: *mut u8, cap: usize) -> i32 {
+    guard(|| {
+        let joined = ta::ids().join("\n");
+        if !buf.is_null() && cap >= joined.len() {
+            slice::from_raw_parts_mut(buf, joined.len()).copy_from_slice(joined.as_bytes());
+        }
+        joined.len() as i32
     })
 }
 
