@@ -36,12 +36,14 @@ public static class FastCatalog
         var output = new double[MaxOutputs * Math.Max(n, 1)];
         var names = new byte[4096];
         var idBytes = Encoding.UTF8.GetBytes(id);
+        var day = new double[n];
+        for (int i = 0; i < n; i++) day[i] = frame.Time[i].Date.Ticks / TimeSpan.TicksPerDay;
         int status;
         fixed (byte* pid = idBytes)
-        fixed (double* o = frame.Open, h = frame.High, l = frame.Low, c = frame.Close, v = frame.Volume, ps = parameters, outp = output)
+        fixed (double* o = frame.Open, h = frame.High, l = frame.Low, c = frame.Close, v = frame.Volume, d = day, ps = parameters, outp = output)
         fixed (byte* pn = names)
         {
-            status = NativeMethods.Indicator(pid, (nuint)idBytes.Length, o, h, l, c, v, (nuint)n, ps, (nuint)parameters.Length,
+            status = NativeMethods.Indicator(pid, (nuint)idBytes.Length, o, h, l, c, v, d, (nuint)n, ps, (nuint)parameters.Length,
                 outp, MaxOutputs, pn, (nuint)names.Length);
         }
         if (status == NativeMethods.ErrArg || status == NativeMethods.ErrUnknown) return null;

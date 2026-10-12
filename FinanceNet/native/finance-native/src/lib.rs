@@ -256,7 +256,7 @@ pub unsafe extern "C" fn fnat_simulate_gbm(
 pub const FNAT_ERR_UNKNOWN: i32 = -4;
 pub const FNAT_ERR_BUFFER: i32 = -5;
 
-/// Catalogue indicator `id` (UTF-8, case-insensitive) on bars of length `n`. `params` are the catalogue parameters
+/// Catalogue indicator `id` (UTF-8, case-insensitive) on bars of length `n` (`day` = calendar day number per bar). `params` are the catalogue parameters
 /// in declaration order. Up to `max_out` series are written row-major into `out` (`max_out × n`) and their names,
 /// separated by '\n', into `names` (`names_cap` bytes, not terminated). Returns the number of series, or a negative
 /// status: `FNAT_ERR_UNKNOWN` for an id the native catalogue lacks, `FNAT_ERR_ARG` where the managed code would
@@ -264,19 +264,20 @@ pub const FNAT_ERR_BUFFER: i32 = -5;
 #[no_mangle]
 pub unsafe extern "C" fn fnat_indicator(
     id: *const u8, id_len: usize, open: *const f64, high: *const f64, low: *const f64, close: *const f64, volume: *const f64,
-    n: usize, params: *const f64, nparams: usize, out: *mut f64, max_out: usize, names: *mut u8, names_cap: usize,
+    day: *const f64, n: usize, params: *const f64, nparams: usize, out: *mut f64, max_out: usize, names: *mut u8, names_cap: usize,
 ) -> i32 {
     guard(|| {
         if id.is_null() || names.is_null() || (nparams > 0 && params.is_null()) {
             return FNAT_ERR_NULL;
         }
         let Ok(id) = std::str::from_utf8(slice::from_raw_parts(id, id_len)) else { return FNAT_ERR_ARG };
-        let (Some(o), Some(h), Some(l), Some(c), Some(v)) = (input(open, n), input(high, n), input(low, n), input(close, n), input(volume, n))
+        let (Some(o), Some(h), Some(l), Some(c), Some(v), Some(d)) =
+            (input(open, n), input(high, n), input(low, n), input(close, n), input(volume, n), input(day, n))
         else {
             return FNAT_ERR_NULL;
         };
         let ps: &[f64] = if nparams == 0 { &[] } else { slice::from_raw_parts(params, nparams) };
-        let bars = ta::Ohlcv { open: o, high: h, low: l, close: c, volume: v };
+        let bars = ta::Ohlcv { open: o, high: h, low: l, close: c, volume: v, day: d };
         let series = match ta::compute(id, &bars, ps) {
             None => return FNAT_ERR_UNKNOWN,
             Some(Err(_)) => return FNAT_ERR_ARG,

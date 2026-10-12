@@ -58,7 +58,7 @@ internal static unsafe partial class NativeMethods
     public static partial int SimulateGbm(double s0, double mu, double sigma, double dt, nuint steps, nuint paths, ulong seed, uint threads, double* output);
 
     [LibraryImport(Library, EntryPoint = "fnat_indicator")]
-    public static partial int Indicator(byte* id, nuint idLen, double* open, double* high, double* low, double* close, double* volume, nuint n,
+    public static partial int Indicator(byte* id, nuint idLen, double* open, double* high, double* low, double* close, double* volume, double* day, nuint n,
         double* parameters, nuint parameterCount, double* output, nuint maxOutputs, byte* names, nuint namesCapacity);
 
     [LibraryImport(Library, EntryPoint = "fnat_indicator_ids")]

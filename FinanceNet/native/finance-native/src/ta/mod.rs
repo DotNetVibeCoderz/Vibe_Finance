@@ -27,6 +27,8 @@ pub struct Ohlcv<'a> {
     pub low: &'a [f64],
     pub close: &'a [f64],
     pub volume: &'a [f64],
+    /// Calendar day of each bar (any monotone day number, e.g. days since 0001-01-01); used by session indicators.
+    pub day: &'a [f64],
 }
 
 impl Ohlcv<'_> {

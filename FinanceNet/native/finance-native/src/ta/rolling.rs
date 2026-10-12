@@ -61,7 +61,7 @@ pub fn variance(x: &[f64], window: usize, ddof: usize) -> Vec<f64> {
             m2 += (v - old) * (v - mean + old - old_mean);
         }
         if count == window {
-            r[i] = m2.max(0.0) / (window - ddof) as f64;
+            r[i] = super::core::net_max(m2, 0.0) / (window - ddof) as f64;
         }
     }
     r

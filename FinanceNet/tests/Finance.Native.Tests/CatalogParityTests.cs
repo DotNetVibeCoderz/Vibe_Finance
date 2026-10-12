@@ -38,8 +38,16 @@ public class CatalogParityTests
             double v = lo + rng.NextDouble() * (hi - lo);
             dict[p.Name] = p.IsInteger ? Math.Round(v) : v;
         }
-        Compare(id, string.Join(",", dict.Select(kv => $"{kv.Key}={kv.Value:G4}")), def.Compute(Choppy, dict),
-            FastCatalog.ComputeNative(id, Choppy, def.Parameters.Select(p => dict[p.Name]).ToArray()));
+        string label = string.Join(",", dict.Select(kv => $"{kv.Key}={kv.Value:G4}"));
+        var native = FastCatalog.ComputeNative(id, Choppy, def.Parameters.Select(p => dict[p.Name]).ToArray());
+        IndicatorSeries[] managed;
+        try { managed = def.Compute(Choppy, dict); }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+        {
+            Assert.True(native is null, $"{id} [{label}]: managed threw {e.GetType().Name} but native returned values");
+            return;
+        }
+        Compare(id, label, managed, native);
     }
 
     [Fact]
@@ -49,6 +57,21 @@ public class CatalogParityTests
         var missing = IndicatorCatalog.All.Select(d => d.Id).Where(id => !FastCatalog.NativeIds.Contains(id)).ToArray();
         Assert.True(missing.Length == 0, $"{missing.Length} of {IndicatorCatalog.Count} not native: {string.Join(", ", missing)}");
         Assert.Equal(IndicatorCatalog.Count, FastCatalog.NativeIds.Count);
+    }
+
+    [Fact]
+    public void SessionVwapResetsOnIntradayBars()
+    {
+        // 7 hourly bars per day: the session VWAP must reset at each date change, natively as in managed code.
+        var start = new DateTime(2026, 3, 2, 9, 0, 0);
+        var bars = SyntheticMarket.GeometricBrownianBars(70, seed: 3)
+            .Select((b, i) => b with { Time = start.AddDays(i / 7).AddHours(i % 7) }).ToArray();
+        var frame = OhlcvFrame.FromBars(bars);
+        var native = FastCatalog.ComputeNative("SVWAP", frame, Array.Empty<double>());
+        Compare("SVWAP", "intraday", IndicatorCatalog.Get("SVWAP").Compute(frame), native);
+        double typical = (bars[7].High + bars[7].Low + bars[7].Close) / 3;
+        Assert.Equal(typical, native![0].Values[7], 12);           // first bar of day 2 starts afresh
+        Assert.NotEqual((bars[6].High + bars[6].Low + bars[6].Close) / 3, native[0].Values[6], 12);
     }
 
     [Fact]
