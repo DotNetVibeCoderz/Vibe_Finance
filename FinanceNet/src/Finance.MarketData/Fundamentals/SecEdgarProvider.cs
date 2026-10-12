@@ -14,6 +14,9 @@ namespace Finance.MarketData.Fundamentals;
 /// <param name="Filed">Filing date.</param>
 public sealed record XbrlFact(DateOnly? Start, DateOnly End, double Value, string Form, string FiscalPeriod, int? FiscalYear, DateOnly Filed);
 
+/// <summary>One filing from EDGAR's submissions index.</summary>
+public sealed record EdgarFiling(string Form, string AccessionNumber, DateOnly FilingDate, DateOnly? ReportDate, string PrimaryDocument, string Url);
+
 /// <summary>
 /// Company fundamentals from SEC EDGAR's XBRL APIs (<c>data.sec.gov</c>, free, no key). The SEC requires a
 /// descriptive User-Agent with a contact address, and allows at most 10 requests per second.
@@ -82,6 +85,44 @@ public sealed class SecEdgarProvider : IFundamentalDataProvider
             _facts[cik] = doc;
         }
         return doc.RootElement;
+    }
+
+    /// <summary>Recent filings of a form type ("10-K", "10-Q", "8-K", ...), newest first.</summary>
+    public async Task<IReadOnlyList<EdgarFiling>> GetFilingsAsync(string ticker, string form = "10-K", int count = 5, CancellationToken cancellationToken = default)
+    {
+        long cik = await GetCikAsync(ticker, cancellationToken).ConfigureAwait(false);
+        using var doc = await Http.GetJsonAsync(_http, $"{DataUrl}/submissions/CIK{cik:D10}.json", Name, cancellationToken, Ua).ConfigureAwait(false);
+        return ParseFilings(doc.RootElement, cik, WwwUrl).Where(f => string.Equals(f.Form, form, StringComparison.OrdinalIgnoreCase)).Take(count).ToList();
+    }
+
+    /// <summary>The primary document of a filing (HTML for 10-K/10-Q).</summary>
+    public async Task<string> GetFilingDocumentAsync(EdgarFiling filing, CancellationToken cancellationToken = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, filing.Url);
+        Ua(req);
+        using var resp = await _http.SendAsync(req, cancellationToken).ConfigureAwait(false);
+        var body = await resp.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode) throw new MarketDataException($"SEC EDGAR returned {(int)resp.StatusCode} for {filing.Url}");
+        return body;
+    }
+
+    /// <summary>Parses <c>submissions/CIK##########.json</c> (the "recent" block, newest first).</summary>
+    public static IReadOnlyList<EdgarFiling> ParseFilings(JsonElement submissions, long cik, string wwwUrl = "https://www.sec.gov")
+    {
+        var r = submissions.GetProperty("filings").GetProperty("recent");
+        var acc = r.GetProperty("accessionNumber");
+        var list = new List<EdgarFiling>();
+        for (int i = 0; i < acc.GetArrayLength(); i++)
+        {
+            string accession = acc[i].GetString()!;
+            string primary = r.GetProperty("primaryDocument")[i].GetString() ?? "";
+            string report = r.TryGetProperty("reportDate", out var rd) ? rd[i].GetString() ?? "" : "";
+            list.Add(new EdgarFiling(r.GetProperty("form")[i].GetString()!, accession,
+                DateOnly.ParseExact(r.GetProperty("filingDate")[i].GetString()!, "yyyy-MM-dd", CultureInfo.InvariantCulture),
+                report.Length == 10 ? DateOnly.ParseExact(report, "yyyy-MM-dd", CultureInfo.InvariantCulture) : null,
+                primary, $"{wwwUrl}/Archives/edgar/data/{cik}/{accession.Replace("-", "")}/{primary}"));
+        }
+        return list.OrderByDescending(f => f.FilingDate).ToList();
     }
 
     /// <summary>All facts of one concept (e.g. "us-gaap", "Revenues") in a unit (default USD).</summary>

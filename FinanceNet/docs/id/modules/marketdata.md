@@ -141,6 +141,15 @@ Laporan EDGAR menggabungkan konsep sinonim per periode (pelapor beralih dari `Re
 restatement ikut terambil. EDGAR sudah diverifikasi live pada laporan Apple (pendapatan, margin, aset =
 liabilitas + ekuitas).
 
+### Dokumen laporan (v0.4)
+
+```csharp
+IReadOnlyList<EdgarFiling> filings = await sec.GetFilingsAsync("AAPL", form: "10-Q", count: 4);   // Form, AccessionNumber, FilingDate, ReportDate, Url
+string html = await sec.GetFilingDocumentAsync(filings[0]);      // dokumen utama, siap untuk Finance.LLM.Rag
+```
+
+Lihat [Finance.LLM](llm.md) untuk tanya-jawab atas teks laporan.
+
 ## Catatan dan batasan
 
 - IDX tidak punya API resmi gratis; `IdxProvider` mengandalkan vendor yang memuat listing ".JK". `IdxRules`

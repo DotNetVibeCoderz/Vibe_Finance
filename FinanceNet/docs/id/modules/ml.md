@@ -80,6 +80,34 @@ hw.Fit(monthlySeries);
 var arima = new ArimaModel(p: 2, d: 1);
 ```
 
+### Peramal neural (v0.4)
+
+```csharp
+// N-BEATS (interpretable): stack tren + musiman, ekspansi basis yang bisa dibaca kembali.
+var nbeats = new NBeatsForecaster(lookback: 36, horizon: 12, new NBeatsOptions { Steps = 800 });
+nbeats.Fit(series);
+double[] next12 = nbeats.Forecast(series);
+var (total, parts) = nbeats.Decompose(series);            // parts[NBeatsStackType.Trend], [Seasonality]; they sum to total
+
+// Temporal Fusion Transformer: kovariat masa lalu, kovariat masa depan yang diketahui, ramalan kuantil.
+var tft = new TemporalFusionTransformer(lookback: 14, horizon: 3, pastCovariates: 1, knownCovariates: 1,
+    new TftOptions { Hidden = 12, Steps = 250 }, pastNames: new[] { "volume" }, knownNames: new[] { "promo" });
+tft.Fit(y, past, known);                                  // past[t, k], known[t, k]; known must reach t + horizon in Predict
+TftForecast f = tft.Predict(y, past, knownIncludingFuture);
+double[] median = f.Median, lo = f.At(0.1), hi = f.At(0.9);
+// f.Attention[h, t]: what each future step attends to; f.EncoderImportance / f.DecoderImportance: variable selection weights
+```
+
+Keduanya ditulis di atas autodiff reverse-mode GraviNum dan dilatih dengan Adam (gradient clipping, mini-batch).
+TFT mengikuti Lim dkk. (2021): gated residual network, variable selection network, encoder-decoder LSTM,
+interpretable multi-head attention (value bersama, mask kausal) dan head kuantil dengan pinball loss. Sebuah
+tes beda-hingga memeriksa gradiennya melalui seluruh model. Hasil terukur di tes (laptop 4 core, CPU):
+
+| Model | Data | Hasil | Waktu latih |
+|---|---|---|---|
+| N-BEATS (tren + musiman, 800 langkah) | tren + musim 12 langkah + noise | MAE di bawah 0,6× nilai terakhir dan di bawah seasonal naive | ~1 s |
+| TFT (hidden 12, 250 langkah, batch 16) | musim + promo diketahui (+3) + kovariat tak relevan | MAE di bawah 0,6× seasonal naive; interval 80% mencakup 60–97%; menyalakan promo menggeser ramalan 2–4 | ~25 s |
+
 ## Reinforcement learning
 
 `TradingEnvironment` mengubah fitur dan return periode berikutnya menjadi pasar langkah demi langkah:
@@ -111,6 +139,31 @@ Console.WriteLine($"{report.Episodes} episode, rata-rata return akhir {report.Fi
 
 EpisodeResult test = agent.Evaluate(new TradingEnvironment(testFeatures, testReturns));   // ITradingAgent, sama seperti yang lain
 ```
+
+### Agen alokasi portofolio (v0.4)
+
+SAC dan TD3 (bobot kontinu) atau PPO (memilih di antara portofolio target: tiap aset all-in, bobot sama, kas),
+di atas Gravicode.RLNet. Observasinya adalah `lookback` return terakhir plus bobot saat ini; reward-nya log
+return setelah biaya transaksi proporsional terhadap turnover, dan bobot bergeser mengikuti harga di antara
+rebalancing. `useGpu: true` melatih di Gravicode.RLNet.Gpu (CUDA, lalu OpenCL) dan kembali ke CPU bila tidak ada.
+
+```csharp
+// returns: Matrix [periode, aset] berisi simple return
+using var agent = new PortfolioRlAgent(PortfolioRlAlgorithm.Sac, lookback: 20, useGpu: true)
+{
+    TransactionCost = 0.001, IncludeCash = true, EpisodeLength = 250,
+};
+agent.Train(trainReturns, steps: 20_000);
+PortfolioRlRun run = agent.Evaluate(testReturns);        // Weights per period, Returns, Equity, AverageTurnover
+Console.WriteLine($"Sharpe {run.Sharpe():F2}, total {run.TotalReturn:P1}, turnover {run.AverageTurnover:P1}  [{agent.Backend.Name}]");
+
+// Environment-nya adalah environment RLNet biasa untuk agen Anda sendiri:
+var cont = new PortfolioAllocationEnvironment(trainReturns, lookback: 20);     // Box action → softmax weights
+var disc = new PortfolioTemplateEnvironment(trainReturns, lookback: 20);       // pick one of N target portfolios
+```
+
+Di tes, SAC belajar memegang aset dominan pada pasar sintetis (bobot rata-rata di atas 0,5, Sharpe out-of-sample
+di atas 1, ~16 s di CPU), dan PPO memilih template all-in-pemenang lebih dari 70% waktu.
 
 ## Model dan riset faktor
 

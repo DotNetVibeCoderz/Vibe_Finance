@@ -132,6 +132,48 @@ Checkpoint disimpan di cache Hugging Face bersama (`HF_HUB_CACHE` / `HF_HOME`), 
 (pra-torch-1.6); HF.Net (0.8.1+) membacanya langsung. `Load(repoId, revision)` menerima branch, tag atau
 commit apa pun.
 
+## Tanya-jawab laporan dengan sitasi (v0.4)
+
+Tanya-jawab berbasis retrieval atas laporan 10-K/10-Q dan laporan tahunan (termasuk laporan emiten IDX
+berbahasa Indonesia), dengan setiap kalimat jawaban diperiksa terhadap passage yang dikutipnya.
+
+```csharp
+using Finance.LLM.Rag;
+using Finance.LLM.Local;
+using Finance.MarketData.Fundamentals;
+
+// 1. Dokumen: 10-K dari EDGAR (HTML), atau laporan tahunan PDF (satu halaman per halaman PDF, dikutip sebagai "p. N").
+var sec = new SecEdgarProvider("Your Name you@example.com");
+EdgarFiling tenK = (await sec.GetFilingsAsync("AAPL", "10-K", count: 1))[0];
+string html = await sec.GetFilingDocumentAsync(tenK);
+var filing = SourceDocument.FromHtml(tenK.AccessionNumber, $"Apple 10-K {tenK.ReportDate:yyyy}", html);
+SourceDocument report = PdfReports.Load(@"BBCA-annual-report-2024.pdf");
+
+// 2. Indeks: chunk sadar-bagian, BM25 (stopword Inggris + Indonesia) digabung dengan embedding dense (opsional).
+using var embedder = LocalEmbeddingModel.Load();               // all-MiniLM-L6-v2, ~90 MB, in-process
+var index = new FilingIndex(embedder);                          // new FilingIndex() = hanya BM25
+await index.AddAsync(filing);
+await index.AddAsync(report);
+
+// 3. Tanya: model wajib mengutip passage sebagai [n]; tiap kalimat diperiksa terhadap yang dikutipnya.
+var qa = new FilingsQa(chatModel, index) { TopK = 6 };
+GroundedAnswer a = await qa.AskAsync("What were total net sales and how did they change?");
+Console.WriteLine(a.Answer);
+foreach (var p in a.Passages) Console.WriteLine($"  {p.Chunk.Reference}");      // "Apple 10-K 2025, Item 7. ..."
+if (!a.IsGrounded) foreach (var c in a.UnsupportedClaims) Console.WriteLine($"  ⚠ {c.Sentence}: {string.Join("; ", c.Issues)}");
+```
+
+`CitationChecker` menandai kalimat yang tidak punya sitasi, mengutip passage yang tidak diambil, menyebut angka
+yang tidak ada di passage yang dikutip (memahami "million/billion", "juta/miliar/triliun", persen dan pemisah
+ribuan Indonesia `1.234.567`), atau terlalu sedikit berbagi kata isi dengannya (`MinimumOverlap`, 0,5). Jika
+passage tidak memuat jawabannya, model menjawab `NOT_FOUND` dan `GroundedAnswer.NotFound` diset. Pemeriksaannya
+deterministik, jadi bisa dipakai juga untuk jawaban dari sumber lain. Terverifikasi live: 10-K terbaru Apple dari
+EDGAR dijawab lewat Azure OpenAI, sepenuhnya grounded.
+
+`LocalEmbeddingModel` (paket `Gravicode.Finance.LLM.Local`) menjalankan checkpoint sentence-transformers apa pun
+lewat HF.Net dengan mean pooling dan normalisasi L2; implementasikan `IEmbeddingModel` untuk embedder lain.
+Pembacaan PDF memakai Gravicode.OfficeNet.PdfNet; PDF hasil scan (hanya gambar) perlu OCR terlebih dahulu.
+
 ## Catatan dan batasan
 
 - **Status live**: jalur Azure OpenAI (chat, loop tool-calling, sentimen JSON) sudah diverifikasi pada

@@ -82,6 +82,35 @@ hw.Fit(monthlySeries);
 var arima = new ArimaModel(p: 2, d: 1);
 ```
 
+### Neural forecasters (v0.4)
+
+```csharp
+// N-BEATS (interpretable): trend + seasonality stacks, basis expansions you can read back.
+var nbeats = new NBeatsForecaster(lookback: 36, horizon: 12, new NBeatsOptions { Steps = 800 });
+nbeats.Fit(series);
+double[] next12 = nbeats.Forecast(series);
+var (total, parts) = nbeats.Decompose(series);            // parts[NBeatsStackType.Trend], [Seasonality]; they sum to total
+
+// Temporal Fusion Transformer: past covariates, known-future covariates, quantile forecasts.
+var tft = new TemporalFusionTransformer(lookback: 14, horizon: 3, pastCovariates: 1, knownCovariates: 1,
+    new TftOptions { Hidden = 12, Steps = 250 }, pastNames: new[] { "volume" }, knownNames: new[] { "promo" });
+tft.Fit(y, past, known);                                  // past[t, k], known[t, k]; known must reach t + horizon in Predict
+TftForecast f = tft.Predict(y, past, knownIncludingFuture);
+double[] median = f.Median, lo = f.At(0.1), hi = f.At(0.9);
+// f.Attention[h, t]: what each future step attends to; f.EncoderImportance / f.DecoderImportance: variable selection weights
+```
+
+Both are written on GraviNum's reverse-mode autodiff and trained with Adam (gradient clipping, mini-batches).
+The TFT follows Lim et al. (2021): gated residual networks, variable selection networks, an LSTM
+encoder-decoder, interpretable multi-head attention (shared values, causal mask) and a pinball-loss quantile
+head. A finite-difference test checks its gradients through the whole model. Measured in the tests (4-core
+laptop, CPU):
+
+| Model | Data | Result | Train time |
+|---|---|---|---|
+| N-BEATS (trend + season, 800 steps) | trend + 12-step season + noise | MAE below 0.6× last-value and below seasonal naive | ~1 s |
+| TFT (hidden 12, 250 steps, batch 16) | season + known promo (+3) + irrelevant covariate | MAE below 0.6× seasonal naive; 80% interval covers 60–97%; switching the promo on moves the forecast by 2–4 | ~25 s |
+
 ## Reinforcement learning
 
 `TradingEnvironment` turns features and next-period returns into a step-by-step market:
@@ -113,6 +142,31 @@ Console.WriteLine($"{report.Episodes} episodes, final average return {report.Fin
 
 EpisodeResult test = agent.Evaluate(new TradingEnvironment(testFeatures, testReturns));   // ITradingAgent, same as the others
 ```
+
+### Portfolio allocation agents (v0.4)
+
+SAC and TD3 (continuous weights) or PPO (choice among target portfolios: each asset all-in, equal weight,
+cash), on Gravicode.RLNet. The observation is the last `lookback` returns plus current weights; the reward is
+the log return after proportional transaction costs on turnover, and weights drift with prices between
+rebalances. `useGpu: true` trains on Gravicode.RLNet.Gpu (CUDA, then OpenCL) and falls back to the CPU.
+
+```csharp
+// returns: Matrix [periods, assets] of simple returns
+using var agent = new PortfolioRlAgent(PortfolioRlAlgorithm.Sac, lookback: 20, useGpu: true)
+{
+    TransactionCost = 0.001, IncludeCash = true, EpisodeLength = 250,
+};
+agent.Train(trainReturns, steps: 20_000);
+PortfolioRlRun run = agent.Evaluate(testReturns);        // Weights per period, Returns, Equity, AverageTurnover
+Console.WriteLine($"Sharpe {run.Sharpe():F2}, total {run.TotalReturn:P1}, turnover {run.AverageTurnover:P1}  [{agent.Backend.Name}]");
+
+// The environments are plain RLNet environments for your own agents:
+var cont = new PortfolioAllocationEnvironment(trainReturns, lookback: 20);     // Box action → softmax weights
+var disc = new PortfolioTemplateEnvironment(trainReturns, lookback: 20);       // pick one of N target portfolios
+```
+
+In the tests SAC learns to hold the dominant asset of a synthetic market (average weight above 0.5, out-of-sample
+Sharpe above 1, ~16 s on CPU), and PPO picks the all-in-winner template more than 70% of the time.
 
 ## Factor models and research
 

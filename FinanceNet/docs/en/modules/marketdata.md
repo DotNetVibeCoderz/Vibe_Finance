@@ -140,6 +140,15 @@ EDGAR statements merge synonym concepts per period (filers switch from `Revenues
 `RevenueFromContractWithCustomerExcludingAssessedTax`, ...), the latest filing winning, so restatements are
 picked up. EDGAR was verified live on Apple's filings (revenue, margins, assets = liabilities + equity).
 
+### Filing documents (v0.4)
+
+```csharp
+IReadOnlyList<EdgarFiling> filings = await sec.GetFilingsAsync("AAPL", form: "10-Q", count: 4);   // Form, AccessionNumber, FilingDate, ReportDate, Url
+string html = await sec.GetFilingDocumentAsync(filings[0]);      // primary document, ready for Finance.LLM.Rag
+```
+
+See [Finance.LLM](llm.md) for question answering over the filing text.
+
 ## Notes and limitations
 
 - IDX has no free official API; `IdxProvider` relies on a vendor carrying ".JK" listings. `IdxRules` encodes the

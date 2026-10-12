@@ -2,14 +2,14 @@
 
 > Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil
 
-Last updated / Terakhir diperbarui: **2026-10-12** · Version **0.7.0**
+Last updated / Terakhir diperbarui: **2026-10-12** · Version **0.8.0**
 
 ## Summary / Ringkasan
 
 | Item | Status |
 |---|---|
 | Libraries (18 packages) | ✅ all build, 0 warnings, 0 errors (`Finance.LLM.Local` added after 0.1.0) |
-| Unit tests | ✅ **452 passed, 0 failed, 5 skipped** (skipped = live tests gated by env vars) |
+| Unit tests | ✅ **466 passed, 0 failed, 7 skipped** (skipped = live tests gated by env vars) |
 | Rust crate `finance_native` | ✅ `cargo test` 15/15, loaded by Finance.RustBridge with managed fallback |
 | Finance.Net Gallery (Avalonia) | ✅ 11 modules + overview, screenshots in `docs/screenshots` |
 | Quickstart console sample | ✅ nine-section tour + HTML tearsheet |
@@ -26,13 +26,15 @@ Last updated / Terakhir diperbarui: **2026-10-12** · Version **0.7.0**
 | Finance.Quant.Tests | Pricing, Risk | 94 / 94 |
 | Finance.Portfolio.Tests | Portfolio, Backtesting | 70 / 70 |
 | Finance.Data.Tests | MarketData, AlternativeData, Execution | 78 / 78 (+2 live, skipped) |
-| Finance.AI.Tests | ML, LLM, LLM.Local, NewsAnalytics | 38 / 38 (+3 live, skipped) |
+| Finance.AI.Tests | ML, LLM, LLM.Local, NewsAnalytics | 52 / 52 (+5 live, skipped) |
 | Finance.Native.Tests | GPU, RustBridge | 34 / 34 |
 
 Live checks run once by hand: Yahoo chart API ✅, Binance klines/depth/ticker ✅ (via
 `data-api.binance.vision`), Azure OpenAI chat + tool calling + JSON ✅, hosted Hugging Face FinBERT ❌ (HTTP 402 —
 the account has no Inference credits), **local FinBERT through HF.Net ✅** (`FINANCENET_FINBERT_LOCAL=1`;
-PhraseBank-style positive/negative/neutral sentences classified correctly, ~100 ms per sentence).
+PhraseBank-style positive/negative/neutral sentences classified correctly, ~100 ms per sentence), **filings Q&A
+on Apple's latest 10-K from EDGAR through Azure OpenAI ✅** (grounded, citations checked), **MiniLM embeddings
+through HF.Net ✅**.
 
 ## Modules / Modul
 
@@ -42,16 +44,16 @@ PhraseBank-style positive/negative/neutral sentences classified correctly, ~100 
 | Finance.Math | ✅ | SIMD stats, Ledoit-Wolf, Matrix (+GraviNum eigen), Normal/Student-t, Brent/Newton, projected gradient, Nelder-Mead, splines, OLS/ridge |
 | Finance.DataFrame | ✅ | OhlcvFrame, CSV, resample, PricePanel, GraviFrame interop. Panel alignment is exact-timestamp inner join only |
 | Finance.TimeSeries | ✅ | Returns, rolling O(n), streaming indicators; **catalogue 248 entries (188 indicators + 60 patterns)**, incl. Hilbert/Ehlers cycles, rolling volume profile and TPO |
-| Finance.MarketData | ✅ | Yahoo, Alpha Vantage, Polygon, Binance, Coinbase, **Alpaca, OANDA, Bybit, OKX, IDX (+ IdxRules)**, CSV, synthetic, cache, rate limiter, WebSocket, economic (**FRED**), fundamentals (**SEC EDGAR XBRL, verified live**). Coinbase, Bybit, OKX unreachable from this network; Alpaca/OANDA/FRED need keys |
+| Finance.MarketData | ✅ | Yahoo, Alpha Vantage, Polygon, Binance, Coinbase, **Alpaca, OANDA, Bybit, OKX, IDX (+ IdxRules)**, CSV, synthetic, cache, rate limiter, WebSocket, economic (**FRED**), fundamentals (**SEC EDGAR XBRL and filing documents, verified live**). Coinbase, Bybit, OKX unreachable from this network; Alpaca/OANDA/FRED need keys |
 | Finance.AlternativeData | ✅ | Social (Reddit), ESG, supply chain, weather. Reddit unauthenticated access is usually blocked |
 | Finance.Pricing | ✅ | BSM+Greeks, IV, Black-76, Bachelier, trees, MC, Heston, SABR, surfaces, **Dupire local vol**, curves, NSS, bonds, FRN, IRS, swaptions, **Hull-White/G2++ with Bermudan LSMC**, **inflation (ZC/YoY) and cross-currency swaps**, forwards, CDS + **ISDA-style CDS (upfront, CS01)**, structured, autocallable |
 | Finance.Risk | ✅ | VaR/ES (7 methods incl. filtered HS and EVT/GPD), liquidity-adjusted and historical incremental/component VaR, FRTB-SA delta (GIRR), attribution, Kupiec/Christoffersen, stress (stylised scenarios), MC simulation, performance report, GARCH, EWMA |
 | Finance.Portfolio | ✅ | MVO, **interior-point QP with sector/factor/turnover constraints and transaction costs**, **resampled frontier**, Black-Litterman, risk parity, HRP, CVaR, heuristics, discrete allocation, rebalancing. CVaR untested above ~30 assets |
 | Finance.Backtesting | ✅ | Event-driven engine, costs, **corporate actions, delistings, point-in-time universe**, **L2 order-book replay with latency and queue position**, vectorised, sweeps, walk-forward, portfolio backtester, 5 strategies. Walk-forward OOS windows start flat |
 | Finance.Execution | ✅ | OMS, paper broker, FIX 4.4 / **5.0 SP2** + session with **persistent store and restart recovery**, Binance, **Alpaca, OANDA, Bybit, OKX** & IBKR adapters (+ **TWS socket client**), TWAP/VWAP/POV/Iceberg, SOR, pre-trade risk, TCA. New venues tested on documented payloads, not live |
-| Finance.ML | ✅ | Features, labelling, frac-diff, purged CV, linear/trees/forest/GBM, AR/ARIMA/Holt-Winters, Q-learning + **Gravicode.RLNet DQN/PPO**, factors, Alphalens-style research, SHAP, PDP/ICE |
-| Finance.LLM | ✅ | OpenAI/Azure/Anthropic/Ollama/HF/DeepSeek, SSE streaming, tool calling, FinancialAssistant, FinGPT-style tasks, FinBERT (hosted) |
-| Finance.LLM.Local | ✅ | FinBERT in-process via HF.Net 0.9.0 (0.8.1 gained legacy `pytorch_model.bin` support for ProsusAI/finbert). Separate package so Finance.LLM stays dependency-free |
+| Finance.ML | ✅ | Features, labelling, frac-diff, purged CV, linear/trees/forest/GBM, AR/ARIMA/Holt-Winters, Q-learning + **Gravicode.RLNet DQN/PPO**, **portfolio RL (SAC/TD3/PPO, GPU via RLNet.Gpu)**, **N-BEATS and Temporal Fusion Transformer**, factors, Alphalens-style research, SHAP, PDP/ICE |
+| Finance.LLM | ✅ | OpenAI/Azure/Anthropic/Ollama/HF/DeepSeek, SSE streaming, tool calling, FinancialAssistant, FinGPT-style tasks, FinBERT (hosted), **filings RAG with citation checking (BM25 + embeddings, EN/ID)** |
+| Finance.LLM.Local | ✅ | FinBERT in-process via HF.Net 0.9.0 (0.8.1 gained legacy `pytorch_model.bin` support for ProsusAI/finbert). Plus sentence-transformers embeddings and PDF annual reports (PdfNet). Separate package so Finance.LLM stays dependency-free |
 | Finance.NewsAnalytics | ✅ | RSS/Atom, lexicon sentiment, entities, events, MinHash, earnings calls, per-ticker intelligence |
 | Finance.Visualization | ✅ | SVG charts (dark/light), HTML tearsheets |
 | Finance.GPU | ✅ | ILGPU CUDA/OpenCL/CPU: MC European/Asian, batch BSM, MC VaR. DirectML/Vulkan unavailable (ILGPU limitation) |
@@ -81,4 +83,5 @@ Carlo pricing (2.2-2.8×) and Monte Carlo VaR (2.4×).
 - [x] ImageSharp off the dependency graph: HF.Net 0.9.0 moved ViT/CLIP to `GraviTransformers.Vision`; Finance.Net
   needs no audit suppression any more
 - [x] Run the full BenchmarkDotNet suites (2026-10-11, results in docs/en/benchmarks.md)
+- [x] v0.4 Financial AI (2026-10-12, released as 0.8.0): portfolio RL, filings RAG with citation checking, N-BEATS, TFT
 - See [PLAN.md](PLAN.md) for v0.2+.

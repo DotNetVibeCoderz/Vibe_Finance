@@ -2,12 +2,13 @@
 
   <PropertyGroup>
     <RootNamespace>Finance.LLM.Local</RootNamespace>
-    <Description>Finance.Net local model inference: FinBERT financial sentiment run in-process through HF.Net (Gravicode.HFNet.GraviTransformers) — no hosted API or credits. Kept apart from Gravicode.Finance.LLM so the HTTP clients stay dependency-free. Dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil.</Description>
+    <Description>Finance.Net local model inference: FinBERT financial sentiment, sentence-transformers embeddings for filings retrieval and PDF annual-report loading (PdfNet), run in-process through HF.Net (Gravicode.HFNet.GraviTransformers) — no hosted API or credits. Kept apart from Gravicode.Finance.LLM so the HTTP clients stay dependency-free. Dibuat oleh Gravicode Studios, dipimpin oleh Kang Fadhil.</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Finance.LLM/Finance.LLM.csproj" />
     <PackageReference Include="Gravicode.HFNet.GraviTransformers" />
+    <PackageReference Include="Gravicode.OfficeNet.PdfNet" />
   </ItemGroup>
 
 </Project>

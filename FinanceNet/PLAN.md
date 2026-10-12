@@ -56,9 +56,14 @@ of the key-gated venues.
 
 - ✅ Local FinBERT inference through HF.Net (Gravicode.HFNet.GraviTransformers) instead of the hosted
   Inference API.
-- PPO/SAC portfolio agents on Gravicode.RLNet with GPU training (Gravicode.RLNet.Gpu).
-- Retrieval-augmented filings Q&A (10-K/10-Q, IDX annual reports) with citation checking.
-- Temporal fusion transformer / N-BEATS forecasters.
+- ✅ PPO/SAC/TD3 portfolio agents on Gravicode.RLNet with GPU training (Gravicode.RLNet.Gpu):
+  `PortfolioRlAgent`, continuous (softmax weights) and template environments, costs on turnover.
+- ✅ Retrieval-augmented filings Q&A (10-K/10-Q from EDGAR, PDF annual reports incl. IDX) with citation checking:
+  `FilingIndex` (BM25 + local embeddings, rank fusion), `CitationChecker`, `FilingsQa`; verified live on Apple's 10-K.
+- ✅ Temporal fusion transformer / N-BEATS forecasters on GraviNum autodiff (quantiles, attention, variable
+  selection; interpretable trend/seasonality stacks).
+
+v0.4 is complete (2026-10-12). Open: TFT static covariates and multi-series training, OCR for scanned PDFs.
 
 ## v0.5 — Acceleration / Akselerasi
 

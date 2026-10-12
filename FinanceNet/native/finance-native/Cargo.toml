@@ -1,6 +1,6 @@
 [package]
 name = "finance-native"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "Rust accelerators for Finance.Net (C ABI). Dibuat oleh Gravicode Studios dipimpin oleh Kang Fadhil."
 license = "MIT"

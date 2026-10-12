@@ -40,3 +40,35 @@ public class LocalFinBertTests
         Assert.Equal("FinBERT (local)", pos.Source);
     }
 }
+
+public class LocalEmbeddingTests
+{
+    private static double Cos(float[] a, float[] b)
+    {
+        double d = 0, na = 0, nb = 0;
+        for (int i = 0; i < a.Length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+        return d / Math.Sqrt(na * nb);
+    }
+
+    /// <summary>Downloads all-MiniLM-L6-v2 (~90 MB) once; enable with FINANCENET_FINBERT_LOCAL=1 (local HF models).</summary>
+    [Fact]
+    public async Task MiniLmEmbeddingsRankBySemantics()
+    {
+        if (Environment.GetEnvironmentVariable("FINANCENET_FINBERT_LOCAL") != "1") Assert.Skip("FINANCENET_FINBERT_LOCAL=1 not set.");
+        using var model = LocalEmbeddingModel.Load();
+        var v = await model.EmbedAsync(new[]
+        {
+            "Revenue grew strongly compared with last year.",
+            "Net sales increased year over year.",
+            "The weather in Jakarta was sunny and humid.",
+        }, TestContext.Current.CancellationToken);
+        Assert.True(Cos(v[0], v[1]) > Cos(v[0], v[2]) + 0.2, $"{Cos(v[0], v[1]):F3} vs {Cos(v[0], v[2]):F3}");
+
+        // Dense retrieval finds a paraphrase that shares no keywords with the query.
+        var index = new Finance.LLM.Rag.FilingIndex(model, new Finance.LLM.Rag.DocumentChunker { MaxCharacters = 60, OverlapCharacters = 0 });
+        await index.AddAsync(Finance.LLM.Rag.SourceDocument.FromText("A", "Doc", "Turnover rose markedly against the previous period.\n\nThe board appointed a new auditor."));
+        var hit = (await index.SearchAsync("revenue growth", 1, TestContext.Current.CancellationToken))[0];
+        Assert.Equal(2, index.Chunks.Count);                // one sentence per passage, so only the embeddings decide
+        Assert.Contains("Turnover", hit.Chunk.Text);
+    }
+}

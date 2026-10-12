@@ -266,6 +266,6 @@ mod tests {
             assert_eq!(fnat_sma(x.as_ptr(), 3, 2, o.as_mut_ptr()), FNAT_OK);
             assert_eq!(o[2], 2.5);
         }
-        assert_eq!(fnat_version(), 700);
+        assert_eq!(fnat_version(), 800);
     }
 }

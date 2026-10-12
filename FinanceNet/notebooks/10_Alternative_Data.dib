@@ -15,9 +15,9 @@
 #!csharp
 
 #i "nuget: ../artifacts/packages"
-#r "nuget: Gravicode.Finance.Core, 0.7.0"
-#r "nuget: Gravicode.Finance.AlternativeData, 0.7.0"
-#r "nuget: Gravicode.Finance.Visualization, 0.7.0"
+#r "nuget: Gravicode.Finance.Core, 0.8.0"
+#r "nuget: Gravicode.Finance.AlternativeData, 0.8.0"
+#r "nuget: Gravicode.Finance.Visualization, 0.8.0"
 
 using Finance.Core;
 using Finance.AlternativeData.Esg;

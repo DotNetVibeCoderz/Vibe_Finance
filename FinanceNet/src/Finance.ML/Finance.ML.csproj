@@ -8,6 +8,7 @@
     <ProjectReference Include="../Finance.Core/Finance.Core.csproj" />
     <ProjectReference Include="../Finance.Math/Finance.Math.csproj" />
     <PackageReference Include="Gravicode.RLNet" />
+    <PackageReference Include="Gravicode.RLNet.Gpu" />
   </ItemGroup>
 
   <ItemGroup>
